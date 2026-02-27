@@ -6,8 +6,7 @@ run_conditional_eqtl <- function(
     bigfeatures,               # bigFeatures object with expression data (samples x features)
     bigsnp,                    # bigSNP object with genotype data (samples x snps)
     features_coord,            # Data frame with feature_name, chromosome, start, end columns
-    design_base,               # Design matrix with covariates (samples x covariates)
-    ind.row = NULL,            # Integer vector of row indices to use (NULL = all)
+    design_base,               # Design matrix with covariates (samples x covariates); row names are sample IDs
     cis_window = 1e6,          # Padding around feature coordinates
     do_conditioning = TRUE,
     pval_threshold = 1e-3,
@@ -21,9 +20,28 @@ run_conditional_eqtl <- function(
   library(arrow)
   if (do_rint) library(RNOmni)
   
-  # If no ind.row provided, use all rows
-  if (is.null(ind.row)) {
-    ind.row <- rows_along(bigsnp$genotypes)
+  # Derive sample IDs from design_base row names (single source of truth)
+  sample_ids <- rownames(design_base)
+  
+  # Validate that design_base has meaningful row names
+  if (is.null(sample_ids) || identical(sample_ids, as.character(seq_len(nrow(design_base))))) {
+    stop("design_base must have meaningful row names (sample IDs), not default integer row names")
+  }
+  
+  # Derive row indices into genotype FBM
+  ind.row.snp <- match(sample_ids, bigsnp$fam$sample.ID)
+  if (any(is.na(ind.row.snp))) {
+    missing <- sample_ids[is.na(ind.row.snp)]
+    stop(sprintf("%d sample ID(s) from design_base not found in bigsnp$fam$sample.ID: %s",
+                 length(missing), paste(head(missing, 3), collapse = ", ")))
+  }
+  
+  # Derive row indices into feature FBM
+  ind.row.feat <- match(sample_ids, bigfeatures$rowData$sample_name)
+  if (any(is.na(ind.row.feat))) {
+    missing <- sample_ids[is.na(ind.row.feat)]
+    stop(sprintf("%d sample ID(s) from design_base not found in bigfeatures$rowData$sample_name: %s",
+                 length(missing), paste(head(missing, 3), collapse = ", ")))
   }
   
   # Validate features_coord
@@ -55,7 +73,7 @@ run_conditional_eqtl <- function(
     gene_idx <- get_feature_indices(bigfeatures, gene)
     
     # Extract phenotype for kept individuals only
-    y <- bigfeatures$features[ind.row, gene_idx]
+    y <- bigfeatures$features[ind.row.feat, gene_idx]
     
     # RINT transform
     if (do_rint) {
@@ -92,7 +110,7 @@ run_conditional_eqtl <- function(
       snp_indices = snp_indices,
       snp_names = cis_snps_gene,
       design_base = design_base,
-      ind.row = ind.row,
+      ind.row = ind.row.snp,
       ncores = ncores
     )
     
@@ -134,8 +152,7 @@ run_conditional_eqtl <- function(
           covar_with_conditioning <- add_snps_to_covariates(
             bigsnp = bigsnp,
             snp_names = conditioning_snps,
-            covar_df = design_base,
-            ind.row = ind.row
+            covar_df = design_base
           )
           
           results_step <- test_snps_with_indices(
@@ -144,7 +161,7 @@ run_conditional_eqtl <- function(
             snp_indices = snp_indices,
             snp_names = cis_snps_gene,
             design_base = covar_with_conditioning,
-            ind.row = ind.row,
+            ind.row = ind.row.snp,
             ncores = ncores
           )
           
@@ -214,8 +231,7 @@ run_conditional_eqtl <- function(
           covar_allbutone <- add_snps_to_covariates(
             bigsnp = bigsnp,
             snp_names = snps_condition_on,
-            covar_df = design_base,
-            ind.row = ind.row
+            covar_df = design_base
           )
           
           result_allbutone <- test_snps_with_indices(
@@ -224,7 +240,7 @@ run_conditional_eqtl <- function(
             snp_indices = snp_indices,
             snp_names = cis_snps_gene,
             design_base = covar_allbutone,
-            ind.row = ind.row,
+            ind.row = ind.row.snp,
             ncores = ncores
           )
           
@@ -304,14 +320,10 @@ run_conditional_eqtl <- function(
 # =========================================================================
 
 test_snps_with_indices <- function(bigsnp, y, snp_indices, snp_names,
-                                   design_base, ind.row = NULL,
+                                   design_base, ind.row,
                                    ncores = 1) {
   
   library(bigstatsr)
-  
-  if (is.null(ind.row)) {
-    ind.row <- rows_along(bigsnp$genotypes)
-  }
   
   fit <- big_univLinReg(
     X           = bigsnp$genotypes,
