@@ -18,7 +18,7 @@ run_conditional_eqtl <- function(
   library(bigstatsr)
   library(tidyverse)
   library(arrow)
-  if (do_rint) library(RNOmni)
+  source("prep_helpers.R")
   
   # Derive sample IDs from design_base row names (single source of truth)
   sample_ids <- rownames(design_base)
@@ -77,7 +77,7 @@ run_conditional_eqtl <- function(
     
     # RINT transform
     if (do_rint) {
-      y <- RankNorm(y)
+      y <- rint(y)
     }
     
     gene_chr <- gene_row$chromosome
