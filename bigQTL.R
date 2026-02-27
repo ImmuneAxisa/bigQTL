@@ -257,20 +257,15 @@ run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
   
   while (TRUE) {
     
-    covar_with_cond <- add_snps_to_covariates(
-      bigsnp    = bigsnp,
-      snp_names = conditioning_snps,
-      covar_df  = design_base
-    )
-    
     results_step <- test_snps_with_indices(
-      bigsnp      = bigsnp,
-      y           = y,
-      snp_indices = snp_indices,
-      snp_names   = cis_snps_gene,
-      design_base = covar_with_cond,
-      ind.row     = ind.row.snp,
-      ncores      = ncores
+      bigsnp           = bigsnp,
+      y                = y,
+      snp_indices      = snp_indices,
+      snp_names        = cis_snps_gene,
+      design_base      = design_base,
+      ind.row          = ind.row.snp,
+      snp_conditioning = conditioning_snps,
+      ncores           = ncores
     ) %>%
       mutate(
         step = step,
@@ -332,20 +327,15 @@ run_allbutone <- function(conditioning_snps, stepwise_tables, bigsnp, y,
       
     } else {
       
-      covar_abo <- add_snps_to_covariates(
-        bigsnp    = bigsnp,
-        snp_names = snps_condition_on,
-        covar_df  = design_base
-      )
-      
       result <- test_snps_with_indices(
-        bigsnp      = bigsnp,
-        y           = y,
-        snp_indices = snp_indices,
-        snp_names   = cis_snps_gene,
-        design_base = covar_abo,
-        ind.row     = ind.row.snp,
-        ncores      = ncores
+        bigsnp           = bigsnp,
+        y                = y,
+        snp_indices      = snp_indices,
+        snp_names        = cis_snps_gene,
+        design_base      = design_base,
+        ind.row          = ind.row.snp,
+        snp_conditioning = snps_condition_on,
+        ncores           = ncores
       ) %>%
         mutate(
           indep = i,
@@ -367,16 +357,29 @@ run_allbutone <- function(conditioning_snps, stepwise_tables, bigsnp, y,
 # =========================================================================
 
 test_snps_with_indices <- function(bigsnp, y, snp_indices, snp_names,
-                                   design_base, ind.row, ncores = 1) {
+                                   design_base, ind.row,
+                                   snp_conditioning = NULL,
+                                   ncores = 1) {
   
   library(bigstatsr)
+  
+  # Augment covariates with conditioning SNPs if provided
+  if (!is.null(snp_conditioning) && length(snp_conditioning) > 0) {
+    covar_df <- add_snps_to_covariates(
+      bigsnp    = bigsnp,
+      snp_names = snp_conditioning,
+      covar_df  = design_base
+    )
+  } else {
+    covar_df <- design_base
+  }
   
   fit <- big_univLinReg(
     X           = bigsnp$genotypes,
     y.train     = y,
     ind.train   = ind.row,
     ind.col     = snp_indices,
-    covar.train = covar_from_df(design_base),
+    covar.train = covar_from_df(covar_df),
     ncores      = ncores
   )
   
