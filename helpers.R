@@ -4,7 +4,7 @@
 # =========================================================================
 
 add_snps_to_covariates <- function(bigsnp, snp_names, covar_df,
-                                   ind.row = NULL) {
+                                   ind.row) {
   "
   Extract SNPs from bigSNP object and add them as columns to covariate data frame.
   Only extracts genotypes for the individuals specified by ind.row.
@@ -14,17 +14,13 @@ add_snps_to_covariates <- function(bigsnp, snp_names, covar_df,
     snp_names: Character vector of SNP names to extract
     covar_df:  Data frame of covariates (samples x covariates).
                Must have the same number of rows as length(ind.row).
-    ind.row:   Integer vector of row indices to extract. If NULL, all rows.
+    ind.row:   Integer vector of row indices to extract.
 
   Returns:
     Data frame with original covariates + SNP columns
   "
   
   library(tidyverse)
-  
-  if (is.null(ind.row)) {
-    ind.row <- bigstatsr::rows_along(bigsnp$genotypes)
-  }
   
   # Match SNP names to indices in map
   snp_indices <- match(snp_names, bigsnp$map$marker.ID)
