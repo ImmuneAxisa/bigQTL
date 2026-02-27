@@ -3,24 +3,30 @@
 # HELPER FUNCTION: Add SNPs as covariates
 # =========================================================================
 
-add_snps_to_covariates <- function(bigsnp, snp_names, covar_df,
-                                   ind.row) {
+add_snps_to_covariates <- function(bigsnp, snp_names, covar_df) {
   "
   Extract SNPs from bigSNP object and add them as columns to covariate data frame.
-  Only extracts genotypes for the individuals specified by ind.row.
+  Row names of covar_df are used to match samples against bigsnp$fam$sample.ID.
 
   Args:
     bigsnp:    bigSNP object with $genotypes (FBM) and $map (SNP metadata)
     snp_names: Character vector of SNP names to extract
     covar_df:  Data frame of covariates (samples x covariates).
-               Must have the same number of rows as length(ind.row).
-    ind.row:   Integer vector of row indices to extract.
+               Row names must be sample IDs present in bigsnp$fam$sample.ID.
 
   Returns:
     Data frame with original covariates + SNP columns
   "
   
   library(tidyverse)
+  
+  # Derive row indices into genotype FBM from covar_df row names
+  ind.row <- match(rownames(covar_df), bigsnp$fam$sample.ID)
+  if (any(is.na(ind.row))) {
+    missing <- rownames(covar_df)[is.na(ind.row)]
+    stop(sprintf("%d sample ID(s) from covar_df not found in bigsnp$fam$sample.ID: %s",
+                 length(missing), paste(head(missing, 3), collapse = ", ")))
+  }
   
   # Match SNP names to indices in map
   snp_indices <- match(snp_names, bigsnp$map$marker.ID)

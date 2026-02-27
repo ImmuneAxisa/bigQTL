@@ -152,8 +152,7 @@ run_conditional_eqtl <- function(
           covar_with_conditioning <- add_snps_to_covariates(
             bigsnp = bigsnp,
             snp_names = conditioning_snps,
-            covar_df = design_base,
-            ind.row = ind.row.snp
+            covar_df = design_base
           )
           
           results_step <- test_snps_with_indices(
@@ -232,8 +231,7 @@ run_conditional_eqtl <- function(
           covar_allbutone <- add_snps_to_covariates(
             bigsnp = bigsnp,
             snp_names = snps_condition_on,
-            covar_df = design_base,
-            ind.row = ind.row.snp
+            covar_df = design_base
           )
           
           result_allbutone <- test_snps_with_indices(
