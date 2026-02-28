@@ -38,7 +38,7 @@ add_snps_to_covariates <- function(bigsnp, snp_names, covar_df) {
   
   # Extract SNP genotypes for kept individuals only and convert to data frame
   snp_genos <- as.data.frame(bigsnp$genotypes[ind.row, snp_indices, drop = FALSE])
-  snp_genos <- setNames(snp_genos, snp_names)
+  names(snp_genos) <- snp_names
   
   # Bind to covariates
   covar_combined <- cbind(covar_df, snp_genos)
