@@ -21,4 +21,3 @@ Suggests:
     reticulate,
     knitr,
     rmarkdown
-VignetteBuilder: knitr
