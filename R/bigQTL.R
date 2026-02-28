@@ -2,6 +2,27 @@
 # MAIN FUNCTION: Conditional eQTL analysis
 # =========================================================================
 
+#' Run conditional eQTL analysis
+#'
+#' Performs conditional cis-QTL analysis using stepwise conditioning and
+#' all-but-one conditioning on file-backed genotype and feature matrices.
+#'
+#' @param bigfeatures bigFeatures object with expression data (samples x features)
+#' @param bigsnp bigSNP object with genotype data (samples x snps)
+#' @param features_coord Data frame with feature_name, chromosome, start, end columns
+#' @param design_base Data frame with covariates; row names = sample IDs
+#' @param cis_window Padding around feature coordinates (default 1e6)
+#' @param do_conditioning Logical; perform stepwise conditioning (default TRUE)
+#' @param pval_threshold P-value threshold for stepwise conditioning (default 1e-3)
+#' @param do_allbutone Logical; perform all-but-one conditioning (default TRUE)
+#' @param do_rint Logical; apply RINT to phenotype per gene (default TRUE)
+#' @param ncores Cores for per-SNP regression within-gene (default 1)
+#' @param ncores_genes Cores for across-gene parallelisation (default 1)
+#' @param output_dir Directory for Parquet output (default "./eqtl_results")
+#'
+#' @return List with elements: stepwise (Arrow dataset), allbutone (Arrow dataset or NULL),
+#'   stepwise_dir, allbutone_dir
+#' @export
 run_conditional_eqtl <- function(
     bigfeatures,               # bigFeatures object with expression data (samples x features)
     bigsnp,                    # bigSNP object with genotype data (samples x snps)
@@ -15,10 +36,6 @@ run_conditional_eqtl <- function(
     ncores = 1,                # Cores for per-SNP regression (within-gene)
     ncores_genes = 1,          # Cores for across-gene parallelisation
     output_dir = "./eqtl_results") {
-  
-  library(bigstatsr)
-  library(tidyverse)
-  library(arrow)
   
   # =====================================================================
   # Resolve sample IDs from design_base row names
@@ -101,10 +118,10 @@ run_conditional_eqtl <- function(
   
   message("\nOpening Parquet datasets...")
   
-  stepwise_dataset <- open_dataset(stepwise_dir)
+  stepwise_dataset <- arrow::open_dataset(stepwise_dir)
   
   allbutone_dataset <- if (dir.exists(allbutone_dir) && length(list.files(allbutone_dir)) > 0) {
-    open_dataset(allbutone_dir)
+    arrow::open_dataset(allbutone_dir)
   } else {
     NULL
   }
@@ -124,6 +141,26 @@ run_conditional_eqtl <- function(
 # PER-GENE FUNCTION: Process a single gene
 # =========================================================================
 
+#' Process a single gene for conditional eQTL analysis
+#'
+#' @param gene Gene name to process
+#' @param bigfeatures bigFeatures object
+#' @param bigsnp bigSNP object
+#' @param features_coord Data frame with gene coordinates
+#' @param design_base Data frame with covariates
+#' @param ind.row.snp Row indices into genotype FBM for samples
+#' @param ind.row.feat Row indices into feature FBM for samples
+#' @param cis_window Cis window size
+#' @param do_conditioning Logical; perform stepwise conditioning
+#' @param pval_threshold P-value threshold for stepwise conditioning
+#' @param do_allbutone Logical; perform all-but-one conditioning
+#' @param do_rint Logical; apply RINT to phenotype
+#' @param ncores Number of cores
+#' @param stepwise_dir Output directory for stepwise results
+#' @param allbutone_dir Output directory for all-but-one results
+#'
+#' @return Invisibly NULL (results written to disk)
+#' @keywords internal
 process_gene <- function(gene, bigfeatures, bigsnp, features_coord,
                          design_base, ind.row.snp, ind.row.feat,
                          cis_window, do_conditioning, pval_threshold,
@@ -167,8 +204,12 @@ process_gene <- function(gene, bigfeatures, bigsnp, features_coord,
     design_base = design_base,
     ind.row     = ind.row.snp,
     ncores      = ncores
-  ) %>%
-    mutate(step = 0, conditioning_snps = NA_character_, .before = everything())
+  )
+  results_step0$step <- 0L
+  results_step0$conditioning_snps <- NA_character_
+  results_step0 <- results_step0[, c("step", "conditioning_snps",
+                                     setdiff(names(results_step0),
+                                             c("step", "conditioning_snps")))]
   
   # ==== Stepwise conditioning ====
   
@@ -210,14 +251,14 @@ process_gene <- function(gene, bigfeatures, bigsnp, features_coord,
   # Stepwise
   sw_dir <- file.path(stepwise_dir, gene_partition)
   dir.create(sw_dir, recursive = TRUE, showWarnings = FALSE)
-  write_parquet(bind_rows(stepwise_all), file.path(sw_dir, "part-0.parquet"))
+  arrow::write_parquet(do.call(rbind, stepwise_all), file.path(sw_dir, "part-0.parquet"))
   message(sprintf("    Wrote stepwise results to %s", gene_partition))
   
   # All-but-one
   if (length(allbutone_all) > 0) {
     abo_dir <- file.path(allbutone_dir, gene_partition)
     dir.create(abo_dir, recursive = TRUE, showWarnings = FALSE)
-    write_parquet(bind_rows(allbutone_all), file.path(abo_dir, "part-0.parquet"))
+    arrow::write_parquet(do.call(rbind, allbutone_all), file.path(abo_dir, "part-0.parquet"))
     message(sprintf("    Wrote all-but-one results to %s", gene_partition))
   }
   
@@ -229,6 +270,21 @@ process_gene <- function(gene, bigfeatures, bigsnp, features_coord,
 # STEPWISE CONDITIONING
 # =========================================================================
 
+#' Run stepwise conditioning for a gene
+#'
+#' @param results_step0 Data frame of marginal association results (step 0)
+#' @param bigsnp bigSNP object
+#' @param y Numeric phenotype vector
+#' @param snp_indices Integer vector of cis-SNP column indices
+#' @param cis_snps_gene Character vector of cis-SNP names
+#' @param design_base Data frame of covariates
+#' @param ind.row.snp Integer vector of row indices for samples in genotype FBM
+#' @param do_conditioning Logical; perform stepwise conditioning
+#' @param pval_threshold P-value threshold for stepwise conditioning
+#' @param ncores Number of cores
+#'
+#' @return List with elements: stepwise_tables, conditioning_snps
+#' @keywords internal
 run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
                          cis_snps_gene, design_base, ind.row.snp,
                          do_conditioning, pval_threshold, ncores) {
@@ -242,7 +298,7 @@ run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
   }
   
   # Check step 0 lead SNP
-  lead <- results_step0 %>% arrange(pvalue) %>% slice(1)
+  lead <- results_step0[which.min(results_step0$pvalue), ]
   
   if (lead$pvalue >= pval_threshold) {
     return(list(stepwise_tables = stepwise_tables,
@@ -266,16 +322,16 @@ run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
       ind.row          = ind.row.snp,
       snp_conditioning = conditioning_snps,
       ncores           = ncores
-    ) %>%
-      mutate(
-        step = step,
-        conditioning_snps = paste(conditioning_snps, collapse = ";"),
-        .before = everything()
-      )
+    )
+    results_step$step <- step
+    results_step$conditioning_snps <- paste(conditioning_snps, collapse = ";")
+    results_step <- results_step[, c("step", "conditioning_snps",
+                                     setdiff(names(results_step),
+                                             c("step", "conditioning_snps")))]
     
     stepwise_tables[[length(stepwise_tables) + 1]] <- results_step
     
-    new_lead <- results_step %>% arrange(pvalue) %>% slice(1)
+    new_lead <- results_step[which.min(results_step$pvalue), ]
     
     if (new_lead$pvalue < pval_threshold) {
       message(sprintf("    Step %d: New lead SNP %s passes (p = %.2e)",
@@ -298,6 +354,21 @@ run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
 # ALL-BUT-ONE CONDITIONING
 # =========================================================================
 
+#' Run all-but-one conditioning for a gene
+#'
+#' @param conditioning_snps Character vector of independent SNP names
+#' @param stepwise_tables List of data frames from stepwise conditioning
+#' @param bigsnp bigSNP object
+#' @param y Numeric phenotype vector
+#' @param snp_indices Integer vector of cis-SNP column indices
+#' @param cis_snps_gene Character vector of cis-SNP names
+#' @param design_base Data frame of covariates
+#' @param ind.row.snp Integer vector of row indices for samples in genotype FBM
+#' @param do_allbutone Logical; perform all-but-one conditioning
+#' @param ncores Number of cores
+#'
+#' @return List of data frames with all-but-one results
+#' @keywords internal
 run_allbutone <- function(conditioning_snps, stepwise_tables, bigsnp, y,
                           snp_indices, cis_snps_gene, design_base,
                           ind.row.snp, do_allbutone, ncores) {
@@ -318,12 +389,11 @@ run_allbutone <- function(conditioning_snps, stepwise_tables, bigsnp, y,
     if (i == length(conditioning_snps)) {
       
       # Last independent SNP: reuse final stepwise step
-      result <- stepwise_tables[[length(stepwise_tables)]] %>%
-        mutate(
-          indep = i,
-          conditioning_snps = paste(snps_condition_on, collapse = ";")
-        ) %>%
-        select(snp, beta, se, t_stat, pvalue, fdr, indep, conditioning_snps)
+      result <- stepwise_tables[[length(stepwise_tables)]]
+      result$indep <- i
+      result$conditioning_snps <- paste(snps_condition_on, collapse = ";")
+      result <- result[, c("snp", "beta", "se", "t_stat", "pvalue", "fdr",
+                           "indep", "conditioning_snps")]
       
     } else {
       
@@ -336,13 +406,11 @@ run_allbutone <- function(conditioning_snps, stepwise_tables, bigsnp, y,
         ind.row          = ind.row.snp,
         snp_conditioning = snps_condition_on,
         ncores           = ncores
-      ) %>%
-        mutate(
-          indep = i,
-          conditioning_snps = paste(snps_condition_on, collapse = ";"),
-          .before = "snp"
-        ) %>%
-        select(snp, beta, se, t_stat, pvalue, fdr, indep, conditioning_snps)
+      )
+      result$indep <- i
+      result$conditioning_snps <- paste(snps_condition_on, collapse = ";")
+      result <- result[, c("snp", "beta", "se", "t_stat", "pvalue", "fdr",
+                           "indep", "conditioning_snps")]
     }
     
     allbutone_tables[[length(allbutone_tables) + 1]] <- result
@@ -356,12 +424,23 @@ run_allbutone <- function(conditioning_snps, stepwise_tables, bigsnp, y,
 # HELPER FUNCTION: Test SNPs with indices
 # =========================================================================
 
+#' Test SNPs with given column indices using univariate linear regression
+#'
+#' @param bigsnp bigSNP object with \code{$genotypes} (FBM) and \code{$map}
+#' @param y Numeric phenotype vector (length = length(ind.row))
+#' @param snp_indices Integer vector of column indices into the genotype FBM
+#' @param snp_names Character vector of SNP names (same length as snp_indices)
+#' @param design_base Data frame of covariates (row names = sample IDs)
+#' @param ind.row Integer vector of row indices for samples in the genotype FBM
+#' @param snp_conditioning Character vector of SNP names to condition on (default NULL)
+#' @param ncores Number of cores for parallel computation (default 1)
+#'
+#' @return Data frame with columns: snp, beta, se, t_stat, pvalue, fdr
+#' @export
 test_snps_with_indices <- function(bigsnp, y, snp_indices, snp_names,
                                    design_base, ind.row,
                                    snp_conditioning = NULL,
                                    ncores = 1) {
-  
-  library(bigstatsr)
   
   # Augment covariates with conditioning SNPs if provided
   if (!is.null(snp_conditioning) && length(snp_conditioning) > 0) {
@@ -374,24 +453,25 @@ test_snps_with_indices <- function(bigsnp, y, snp_indices, snp_names,
     covar_df <- design_base
   }
   
-  fit <- big_univLinReg(
+  fit <- bigstatsr::big_univLinReg(
     X           = bigsnp$genotypes,
     y.train     = y,
     ind.train   = ind.row,
     ind.col     = snp_indices,
-    covar.train = covar_from_df(covar_df),
+    covar.train = bigstatsr::covar_from_df(covar_df),
     ncores      = ncores
   )
   
-  pvals <- predict(fit, log10 = FALSE)
-  BHfdr <- p.adjust(pvals, "BH")
+  pvals <- stats::predict(fit, log10 = FALSE)
+  BHfdr <- stats::p.adjust(pvals, "BH")
   
-  tibble(
+  data.frame(
     snp    = snp_names,
     beta   = fit$estim,
     se     = fit$std.err,
     t_stat = fit$score,
     pvalue = pvals,
-    fdr    = BHfdr
+    fdr    = BHfdr,
+    stringsAsFactors = FALSE
   )
 }

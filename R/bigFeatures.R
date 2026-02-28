@@ -15,8 +15,6 @@
 #' @export
 bigFeatures <- function(matrix, rowData = NULL, colData = NULL) {
   
-  library(bigstatsr)
-  
   # Validate input matrix
   if (!is.matrix(matrix)) {
     stop("matrix must be a numeric matrix")
@@ -26,7 +24,7 @@ bigFeatures <- function(matrix, rowData = NULL, colData = NULL) {
   n_features <- ncol(matrix)
   
   # Convert matrix to FBM
-  fbm <- as_FBM(matrix)
+  fbm <- bigstatsr::as_FBM(matrix)
   
   # Create rowData (sample metadata) if NULL
   if (is.null(rowData)) {
