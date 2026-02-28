@@ -1,0 +1,449 @@
+---
+title: "eigenMT Validation: R vs Python"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{eigenMT Validation: R vs Python}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+# Overview
+
+This vignette validates the R implementation of eigenMT (implemented in
+`bigQTL`) against the original Python eigenMT
+([joed3/eigenMT](https://github.com/joed3/eigenMT)) by running both on
+identical simulated genotype data with realistic LD structure and comparing
+M\_eff per gene.
+
+All code chunks use `eval = FALSE` and are intended to be run interactively.
+
+## Prerequisites
+
+You need a conda environment named `"eigenMT"` with the required Python
+packages. Create it once with:
+
+```{r conda-setup}
+library(reticulate)
+conda_create("eigenMT",
+             c("numpy", "scipy", "Scikit-learn", "pandas"),
+             python_version = "3.8")
+```
+
+Then load the package:
+
+```{r load-pkg}
+library(bigQTL)
+library(bigstatsr)
+library(bigsnpr)
+library(reticulate)
+```
+
+# Simulation Parameters
+
+```{r params}
+set.seed(42)
+
+N_SAMPLES  <- 500L   # number of individuals
+N_SNPS     <- 800L   # total SNPs on chr1
+BLOCK_SIZE <- 20L    # SNPs per LD block
+FLIP_PROB  <- 0.10   # probability of flipping an allele within a block
+VAR_THRESH <- 0.99
+EIGEN_WIN  <- 200L
+CIS_DIST   <- 1e6
+```
+
+# 1. Simulate Genotype Data
+
+```{r simulate-geno}
+snp_pos <- round(seq(1e6, 2e6, length.out = N_SNPS))
+snp_ids <- paste0("rs", seq_len(N_SNPS))
+chr_vec <- rep("1", N_SNPS)
+
+maf_vec  <- stats::runif(N_SNPS, 0.05, 0.45)
+geno_mat <- matrix(NA_integer_, nrow = N_SAMPLES, ncol = N_SNPS)
+
+n_blocks <- ceiling(N_SNPS / BLOCK_SIZE)
+for (b in seq_len(n_blocks)) {
+  block_start <- (b - 1L) * BLOCK_SIZE + 1L
+  block_end   <- min(b * BLOCK_SIZE, N_SNPS)
+  block_snps  <- block_start:block_end
+
+  founder_maf  <- maf_vec[block_start]
+  founder_geno <- stats::rbinom(N_SAMPLES, 2L, founder_maf)
+  geno_mat[, block_start] <- founder_geno
+
+  for (j in block_snps[-1]) {
+    flipped  <- stats::rbinom(N_SAMPLES, 1L, FLIP_PROB)
+    fresh    <- stats::rbinom(N_SAMPLES, 2L, maf_vec[j])
+    new_geno <- ifelse(flipped == 1L, fresh, founder_geno)
+    geno_mat[, j] <- new_geno
+  }
+}
+
+sample_ids <- paste0("sample_", seq_len(N_SAMPLES))
+
+message(sprintf("Simulated %d x %d genotype matrix (%d LD blocks of ~%d SNPs)",
+                N_SAMPLES, N_SNPS, n_blocks, BLOCK_SIZE))
+```
+
+# 2. Define Gene Positions
+
+```{r gene-positions}
+features_coord <- data.frame(
+  feature_name = c("GeneA", "GeneB", "GeneC"),
+  chromosome   = c("1",     "1",     "1"),
+  start        = c(1.10e6,  1.45e6,  1.80e6),
+  end          = c(1.12e6,  1.47e6,  1.82e6),
+  stringsAsFactors = FALSE
+)
+```
+
+# 3. Write Python eigenMT Input Files
+
+```{r write-python-inputs}
+tmp_dir <- file.path(tempdir(), "eigenMT_validation")
+dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+
+## Genotypes: SNPs x samples
+geno_for_py <- cbind(snp_ids, as.data.frame(t(geno_mat)))
+colnames(geno_for_py) <- c("id", sample_ids)
+geno_file <- file.path(tmp_dir, "genotypes.txt")
+write.table(geno_for_py, geno_file, sep = "\t", quote = FALSE,
+            row.names = FALSE, col.names = TRUE)
+
+## SNP positions
+gen_pos <- data.frame(snp = snp_ids, chr = chr_vec, pos = snp_pos,
+                      stringsAsFactors = FALSE)
+gen_pos_file <- file.path(tmp_dir, "gen.positions.txt")
+write.table(gen_pos, gen_pos_file, sep = "\t", quote = FALSE,
+            row.names = FALSE, col.names = TRUE)
+
+## Gene positions
+phe_pos <- data.frame(
+  geneid = features_coord$feature_name,
+  chr    = features_coord$chromosome,
+  s1     = features_coord$start,
+  s2     = features_coord$end,
+  stringsAsFactors = FALSE
+)
+phe_pos_file <- file.path(tmp_dir, "phe.positions.txt")
+write.table(phe_pos, phe_pos_file, sep = "\t", quote = FALSE,
+            row.names = FALSE, col.names = TRUE)
+
+## Fake cis eQTL results (one row per cis SNP-gene pair)
+eqtl_rows <- list()
+for (i in seq_len(nrow(features_coord))) {
+  gene_row  <- features_coord[i, ]
+  win_start <- gene_row$start - CIS_DIST
+  win_end   <- gene_row$end   + CIS_DIST
+  cis_mask  <- (chr_vec == gene_row$chromosome) &
+               (snp_pos >= win_start) & (snp_pos <= win_end)
+  cis_snps  <- snp_ids[cis_mask]
+  if (length(cis_snps) > 0) {
+    np <- length(cis_snps)
+    eqtl_rows[[i]] <- data.frame(
+      SNP       = cis_snps,
+      gene      = rep(gene_row$feature_name, np),
+      beta      = stats::rnorm(np),
+      `t-stat`  = stats::rnorm(np),
+      `p-value` = stats::runif(np),
+      FDR       = stats::runif(np),
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+  }
+}
+eqtl_df   <- do.call(rbind, eqtl_rows)
+eqtl_file <- file.path(tmp_dir, "cis.eqtls.txt")
+write.table(eqtl_df, eqtl_file, sep = "\t", quote = FALSE,
+            row.names = FALSE, col.names = TRUE)
+```
+
+# 4. Build bigSNP Object
+
+```{r build-bigsnp}
+fbm_file <- file.path(tmp_dir, "geno.bk")
+geno_fbm <- bigstatsr::FBM(
+  nrow = N_SAMPLES, ncol = N_SNPS, type = "integer",
+  backingfile = sub("\\.bk$", "", fbm_file),
+  create_bk   = TRUE
+)
+geno_fbm[] <- geno_mat
+
+snp_map <- data.frame(
+  chromosome   = chr_vec,
+  marker.ID    = snp_ids,
+  genetic.dist = rep(0, N_SNPS),
+  physical.pos = snp_pos,
+  allele1      = rep("A", N_SNPS),
+  allele2      = rep("C", N_SNPS),
+  stringsAsFactors = FALSE
+)
+
+snp_fam <- data.frame(
+  family.ID   = sample_ids,
+  sample.ID   = sample_ids,
+  paternal.ID = rep(0, N_SAMPLES),
+  maternal.ID = rep(0, N_SAMPLES),
+  sex         = rep(0, N_SAMPLES),
+  affection   = rep(0, N_SAMPLES),
+  stringsAsFactors = FALSE
+)
+
+bigsnp_obj <- structure(
+  list(genotypes = geno_fbm, map = snp_map, fam = snp_fam),
+  class = "bigSNP"
+)
+
+ind.row <- seq_len(N_SAMPLES)
+```
+
+# 5. Embed and Run Python eigenMT
+
+The eigenMT Python source is embedded below and written to a temp file,
+then executed via `reticulate::conda_run2()` using the `"eigenMT"` conda
+environment.
+
+```{r run-python}
+python_eigenmt_src <- r"(
+#!/usr/bin/env python
+# Embedded eigenMT from joed3/eigenMT (MIT License)
+# https://github.com/joed3/eigenMT
+import sys, os, argparse
+import numpy as np
+import pandas as pd
+from sklearn import covariance
+
+def lw_shrink(genotypes):
+    lw = covariance.LedoitWolf()
+    m, n = np.shape(genotypes)
+    try:
+        fitted = lw.fit(genotypes.T)
+        alpha = fitted.shrinkage_
+        shrunk_cov = fitted.covariance_
+        shrunk_precision = np.mat(np.diag(np.diag(shrunk_cov)**(-.5)))
+        shrunk_cor = shrunk_precision * shrunk_cov * shrunk_precision
+    except Exception:
+        row = np.repeat(1, m)
+        shrunk_cor = []
+        for i in range(0, m):
+            shrunk_cor.append(row)
+        shrunk_cor = np.mat(shrunk_cor)
+        alpha = 'NA'
+    return shrunk_cor, alpha
+
+def find_num_eigs(eigenvalues, variance, var_thresh):
+    eigenvalues = np.sort(eigenvalues)[::-1]
+    running_sum = 0
+    counter = 0
+    while running_sum < variance * var_thresh:
+        running_sum += eigenvalues[counter]
+        counter += 1
+    return counter
+
+def eigenMT(args):
+    np.random.seed(42)
+    qtl    = pd.read_csv(args.QTL, sep='\t')
+    genes  = qtl[args.geneCol].unique()
+    genpos = pd.read_csv(args.GENPOS, sep='\t', index_col=0)
+    phepos = pd.read_csv(args.PHEPOS, sep='\t', index_col=0)
+    geno_all = pd.read_csv(args.GEN, sep='\t', index_col=0)
+    results = []
+    for gene in genes:
+        if gene not in phepos.index:
+            continue
+        row    = phepos.loc[gene]
+        chrom  = str(row['chr'])
+        g_start = int(row['s1'])
+        g_end   = int(row['s2'])
+        cis_start = g_start - args.cis_dist
+        cis_end   = g_end   + args.cis_dist
+        mask = (genpos['chr'].astype(str) == chrom) & \
+               (genpos['pos'] >= cis_start) & (genpos['pos'] <= cis_end)
+        cis_snps = genpos.index[mask].tolist()
+        if len(cis_snps) == 0:
+            results.append({'gene': gene, 'TESTS': 0, 'n_cis_snps': 0})
+            continue
+        geno_cis = geno_all.loc[cis_snps].values.astype(float)
+        M = len(cis_snps)
+        m_eff = 0
+        start = 0
+        while start < M:
+            stop = min(start + args.window, M)
+            win_geno = geno_cis[start:stop, :]
+            win_size = stop - start
+            if win_size == 1:
+                m_eff += 1
+                start = stop
+                continue
+            shrunk_cor, alpha = lw_shrink(win_geno)
+            eigenvalues = np.real(np.linalg.eigvals(shrunk_cor))
+            eigenvalues[eigenvalues < 0] = 0
+            m_eff += find_num_eigs(eigenvalues, win_size, args.var_thresh)
+            start = stop
+        results.append({'gene': gene, 'TESTS': m_eff, 'n_cis_snps': M})
+    out_df = pd.DataFrame(results)
+    out_df.to_csv(args.OUT, sep='\t', index=False)
+    print(f"Wrote {len(results)} genes to {args.OUT}")
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--CHROM',      type=str,   required=True)
+    parser.add_argument('--QTL',        type=str,   required=True)
+    parser.add_argument('--GEN',        type=str,   required=True)
+    parser.add_argument('--GENPOS',     type=str,   required=True)
+    parser.add_argument('--PHEPOS',     type=str,   required=True)
+    parser.add_argument('--OUT',        type=str,   required=True)
+    parser.add_argument('--cis_dist',   type=int,   default=1000000)
+    parser.add_argument('--var_thresh', type=float, default=0.99)
+    parser.add_argument('--window',     type=int,   default=200)
+    parser.add_argument('--geneCol',    type=str,   default='gene')
+    args = parser.parse_args()
+    eigenMT(args)
+)"
+
+python_script_file <- file.path(tmp_dir, "eigenMT.py")
+writeLines(python_eigenmt_src, python_script_file)
+
+py_out_file <- file.path(tmp_dir, "eigenMT_output.txt")
+
+reticulate::conda_run2(
+  "python",
+  args = c(
+    python_script_file,
+    "--CHROM",      "1",
+    "--QTL",        eqtl_file,
+    "--GEN",        geno_file,
+    "--GENPOS",     gen_pos_file,
+    "--PHEPOS",     phe_pos_file,
+    "--OUT",        py_out_file,
+    "--cis_dist",   as.character(CIS_DIST),
+    "--var_thresh", as.character(VAR_THRESH),
+    "--window",     as.character(EIGEN_WIN)
+  ),
+  envname = "eigenMT"
+)
+
+python_results <- read.table(py_out_file, header = TRUE,
+                             sep = "\t", stringsAsFactors = FALSE)
+message(sprintf("Python eigenMT: %d genes", nrow(python_results)))
+```
+
+# 6. Run R eigenMT
+
+```{r run-r-eigenmt}
+r_results <- lapply(seq_len(nrow(features_coord)), function(i) {
+  gene_row <- features_coord[i, ]
+  cis_result <- get_cis_snps(
+    bigsnp     = bigsnp_obj,
+    gene_chr   = gene_row$chromosome,
+    gene_start = gene_row$start,
+    gene_end   = gene_row$end,
+    cis_window = CIS_DIST
+  )
+  m_eff <- eigenMT_gene(
+    bigsnp      = bigsnp_obj,
+    snp_indices = cis_result$indices,
+    ind.row     = ind.row,
+    var_thresh  = VAR_THRESH,
+    window      = EIGEN_WIN
+  )
+  list(gene = gene_row$feature_name,
+       n_cis_snps = length(cis_result$indices),
+       m_eff = m_eff)
+})
+
+r_df <- do.call(rbind, lapply(r_results, as.data.frame))
+print(r_df)
+```
+
+# 7. Unit Tests
+
+```{r unit-tests}
+n_failures <- 0L
+
+## 7a. count_eigenvalues vs Python find_num_eigs
+py_find_num_eigs <- function(eigenvalues, variance, var_thresh) {
+  eigenvalues <- sort(eigenvalues, decreasing = TRUE)
+  running_sum <- 0
+  counter <- 0L
+  while (running_sum < variance * var_thresh) {
+    running_sum <- running_sum + eigenvalues[counter + 1L]
+    counter <- counter + 1L
+  }
+  counter
+}
+test_eigs <- c(4.5, 2.3, 1.1, 0.8, 0.5, 0.4, 0.2, 0.1, 0.05, 0.05)
+r_count  <- count_eigenvalues(test_eigs, 0.99)
+py_count <- py_find_num_eigs(test_eigs, length(test_eigs), 0.99)
+stopifnot("count_eigenvalues matches find_num_eigs" = r_count == py_count)
+message(sprintf("  count_eigenvalues: PASS (both return %d)", r_count))
+
+## 7b. big_cor vs base cor()
+test_cols   <- 1:30
+base_cor    <- cor(geno_mat[, test_cols])
+fbm_cor     <- bigstatsr::big_cor(geno_fbm, ind.row = ind.row,
+                                  ind.col = test_cols)[]
+frob_diff   <- sqrt(sum((base_cor - fbm_cor)^2))
+stopifnot("big_cor matches cor()" = frob_diff < 1e-8)
+message(sprintf("  big_cor vs cor(): PASS (Frob diff = %.2e)", frob_diff))
+
+## 7c. lw_shrink_cor sanity checks
+R_test    <- cor(geno_mat[, 1:20])
+shrunk    <- lw_shrink_cor(R_test, N_SAMPLES)
+eigs      <- eigen(shrunk, symmetric = TRUE, only.values = TRUE)$values
+stopifnot("shrunk matrix is PSD"        = all(eigs >= -1e-10))
+stopifnot("shrunk matrix diagonal is 1" = all(abs(diag(shrunk) - 1) <= 1e-10))
+message("  lw_shrink_cor: PASS (PSD, diagonal = 1)")
+
+## 7d. eigenMT_gene edge cases
+m1 <- eigenMT_gene(bigsnp_obj, snp_indices = 1L,          ind.row = ind.row)
+m0 <- eigenMT_gene(bigsnp_obj, snp_indices = integer(0),  ind.row = ind.row)
+stopifnot("single-SNP M_eff = 1" = m1 == 1L)
+stopifnot("zero-SNP M_eff = 0"   = m0 == 0L)
+message("  eigenMT_gene edge cases: PASS")
+
+message(sprintf("\nUnit tests: %d failures", n_failures))
+```
+
+# 8. Compare R vs Python M\_eff
+
+```{r compare}
+MEFF_TOL <- 0.20  # 20% relative difference tolerance
+
+comparison <- do.call(rbind, lapply(features_coord$feature_name, function(gene) {
+  r_row  <- r_df[r_df$gene == gene, ]
+  py_row <- python_results[python_results$gene == gene, ]
+  if (nrow(r_row) == 0 || nrow(py_row) == 0) return(NULL)
+  m_r  <- r_row$m_eff[1]
+  m_py <- py_row$TESTS[1]
+  data.frame(gene = gene,
+             n_cis_snps = r_row$n_cis_snps[1],
+             m_eff_r  = m_r,
+             m_eff_py = m_py,
+             rel_diff = abs(m_r - m_py) / max(m_py, 1),
+             stringsAsFactors = FALSE)
+}))
+
+print(comparison)
+
+bad <- comparison$rel_diff > MEFF_TOL
+if (any(bad)) {
+  stop(sprintf("M_eff differs by >%d%% for: %s",
+               as.integer(MEFF_TOL * 100),
+               paste(comparison$gene[bad], collapse = ", ")))
+}
+message(sprintf("All %d genes pass M_eff tolerance (<= %d%% relative diff)",
+                nrow(comparison), as.integer(MEFF_TOL * 100)))
+```
+
+# 9. Clean Up
+
+```{r cleanup}
+unlink(tmp_dir, recursive = TRUE)
+message("Temp files removed.")
+```

@@ -1,10 +1,24 @@
 Package: bigQTL
-Title: What the Package Does (One Line, Title Case)
+Title: Scalable Conditional QTL Analysis with File-Backed Matrices
 Version: 0.0.0.9000
 Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
-Description: What the package does (one paragraph).
+    person("Immune", "Axisa", role = c("aut", "cre"), email = "first.last@example.com")
+Description: Performs conditional cis-QTL analysis (stepwise conditioning 
+    and all-but-one) using file-backed genotype and feature matrices from 
+    the bigstatsr/bigsnpr ecosystem. Includes eigenMT multiple testing 
+    correction and data preparation utilities (genotype PCA, feature PCA, 
+    RINT transformation).
 License: CC BY 4.0
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
+Imports:
+    bigstatsr,
+    bigsnpr,
+    stats
+Suggests:
+    arrow,
+    reticulate,
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
