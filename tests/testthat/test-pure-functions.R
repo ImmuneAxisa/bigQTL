@@ -34,10 +34,8 @@ test_that("count_eigenvalues returns all for zero total variance", {
 })
 
 test_that("count_eigenvalues returns correct count at threshold", {
-  eigs <- c(10, 5, 2, 1, 0.5)
-  # total = 18.5, 99% = 18.315; cumsum: 10, 15, 17, 18, 18.5
-  # need 4 eigenvalues to reach 99%
-  expect_equal(count_eigenvalues(eigs, 0.99), 4L)
+  eigs <- c(30, 10, 8, 5, 1, 0.5)
+  expect_equal(count_eigenvalues(eigs, 0.99), 5L)
 })
 
 test_that("count_eigenvalues sorts descending before counting", {
