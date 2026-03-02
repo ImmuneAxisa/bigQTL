@@ -2,7 +2,7 @@ Package: bigQTL
 Title: Scalable Conditional QTL Analysis with File-Backed Matrices
 Version: 0.0.0.9000
 Authors@R: 
-    person("Immune", "Axisa", role = c("aut", "cre"), email = "first.last@example.com")
+    person("Pierre-Paul", "Axisa", role = c("aut", "cre"), email = "pp.axisa@gmail.com")
 Description: Performs conditional cis-QTL analysis (stepwise conditioning 
     and all-but-one) using file-backed genotype and feature matrices from 
     the bigstatsr/bigsnpr ecosystem. Includes eigenMT multiple testing 
@@ -16,9 +16,9 @@ Imports:
     bigstatsr,
     bigsnpr,
     parallel,
+    arrow,
     stats
 Suggests:
-    arrow,
     testthat (>= 3.0.0),
     reticulate,
     knitr,
