@@ -15,9 +15,12 @@ RoxygenNote: 7.3.2
 Imports:
     bigstatsr,
     bigsnpr,
+    parallel,
     stats
 Suggests:
     arrow,
+    testthat (>= 3.0.0),
     reticulate,
     knitr,
     rmarkdown
+Config/testthat/edition: 3
