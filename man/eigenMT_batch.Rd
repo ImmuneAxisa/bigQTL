@@ -8,7 +8,7 @@ eigenMT_batch(
   bigsnp,
   features_coord,
   ind.row,
-  cis_window = 1e6,
+  cis_window = 1e+06,
   var_thresh = 0.99,
   eigenmt_window = 200,
   ncores = 1

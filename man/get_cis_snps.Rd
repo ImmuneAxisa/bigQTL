@@ -4,7 +4,7 @@
 \alias{get_cis_snps}
 \title{Get cis SNPs for a gene}
 \usage{
-get_cis_snps(bigsnp, gene_chr, gene_start, gene_end, cis_window = 1e6)
+get_cis_snps(bigsnp, gene_chr, gene_start, gene_end, cis_window = 1e+06)
 }
 \arguments{
 \item{bigsnp}{bigSNP object with \code{$map} containing \code{chromosome}
