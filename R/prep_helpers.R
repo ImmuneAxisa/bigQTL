@@ -41,13 +41,11 @@ compute_geno_pcs <- function(bigsnp, keep_ids = NULL, n_pcs = 5,
     message(sprintf("  Using all %d individuals", length(ind.row)))
   }
 
-  all_cols <- bigstatsr::cols_along(bigsnp$genotypes)
+  ind.col <- bigstatsr::cols_along(bigsnp$genotypes)
   if (!is.null(exclude_snp_names)) {
     exclude_idx <- get_snp_indices(bigsnp, exclude_snp_names)
     ind.col <- setdiff(all_cols, exclude_idx)
     message(sprintf("  Excluded %d SNPs, using %d for PCA", length(exclude_idx), length(ind.col)))
-  } else {
-    ind.col <- NULL
   }
 
   svd_result <- bigsnpr::snp_autoSVD(
