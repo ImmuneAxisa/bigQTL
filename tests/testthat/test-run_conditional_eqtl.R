@@ -240,3 +240,195 @@ test_that("run_conditional_qtl errors when pheno_coord is missing required colum
   )
 })
 
+# =========================================================================
+# sd = 0 early exit
+# =========================================================================
+
+test_that("process_pheno warns and exits early when phenotype has sd = 0", {
+  d <- make_qtl_test_data()
+
+  # Replace phenotype values with a constant (sd = 0)
+  d$bigpheno$pheno[, 1] <- 0
+
+  out_dir <- tempfile("qtl_test_")
+  dir.create(file.path(out_dir, "stepwise"),  recursive = TRUE)
+  dir.create(file.path(out_dir, "allbutone"), recursive = TRUE)
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+
+  ind.row.snp   <- match(d$sample_ids, d$bigsnp$fam$sample.ID)
+  ind.row.pheno <- match(d$sample_ids, d$bigpheno$rowData$sample_name)
+
+  expect_warning(
+    process_pheno(
+      pheno          = "phenoA",
+      bigpheno       = d$bigpheno,
+      bigsnp         = d$bigsnp,
+      pheno_coord    = d$pheno_coord,
+      design_base    = d$design_base,
+      ind.row.snp    = ind.row.snp,
+      ind.row.pheno  = ind.row.pheno,
+      cis_window     = 1e6,
+      do_conditioning = TRUE,
+      pval_threshold = 1e-3,
+      max_steps      = 5,
+      do_allbutone   = TRUE,
+      do_rint        = FALSE,
+      ncores         = 1,
+      stepwise_dir   = file.path(out_dir, "stepwise"),
+      allbutone_dir  = file.path(out_dir, "allbutone")
+    ),
+    "sd\\(y\\) == 0"
+  )
+})
+
+# =========================================================================
+# max_steps enforcement
+# =========================================================================
+
+# Helper: dataset guaranteed to have multiple passing steps at any pval
+make_qtl_test_data_high_signal <- function(n_samples = 40, n_snps = 5, seed = 7) {
+  set.seed(seed)
+  sample_ids <- paste0("s", seq_len(n_samples))
+
+  geno_mat <- matrix(
+    sample(0:2, n_samples * n_snps, replace = TRUE),
+    nrow = n_samples, ncol = n_snps
+  )
+  geno_fbm <- bigstatsr::as_FBM(geno_mat)
+
+  bigsnp <- list(
+    genotypes = geno_fbm,
+    fam = data.frame(sample.ID = sample_ids, stringsAsFactors = FALSE),
+    map = data.frame(
+      chromosome   = rep("1", n_snps),
+      marker.ID    = paste0("rs", seq_len(n_snps)),
+      physical.pos = as.integer(seq(950000L, 1050000L, length.out = n_snps)),
+      stringsAsFactors = FALSE
+    )
+  )
+
+  expr_mat <- matrix(rnorm(n_samples), nrow = n_samples, ncol = 1)
+  rownames(expr_mat) <- sample_ids
+  colnames(expr_mat) <- "phenoA"
+  bigpheno <- bigPheno(expr_mat)
+
+  pheno_coord <- data.frame(
+    pheno_name = "phenoA", chromosome = "1",
+    start = 1000000L, end = 1000100L,
+    stringsAsFactors = FALSE
+  )
+  design_base <- data.frame(
+    covar1 = rnorm(n_samples),
+    row.names = sample_ids,
+    stringsAsFactors = FALSE
+  )
+  list(bigsnp = bigsnp, bigpheno = bigpheno,
+       pheno_coord = pheno_coord, design_base = design_base,
+       sample_ids = sample_ids)
+}
+
+test_that("run_stepwise warns when max_steps is reached", {
+  d <- make_qtl_test_data_high_signal()
+
+  ind.row.snp <- match(d$sample_ids, d$bigsnp$fam$sample.ID)
+
+  results_step0 <- test_snps_with_indices(
+    bigsnp      = d$bigsnp,
+    y           = rnorm(length(d$sample_ids)),
+    snp_indices = seq_len(nrow(d$bigsnp$map)),
+    snp_names   = d$bigsnp$map$marker.ID,
+    design_base = d$design_base,
+    ind.row     = ind.row.snp
+  )
+  results_step0$step <- 0L
+  results_step0$conditioning_snps <- NA_character_
+  results_step0 <- results_step0[, c("step", "conditioning_snps",
+                                     setdiff(names(results_step0),
+                                             c("step", "conditioning_snps")))]
+
+  # Force the first lead SNP to pass threshold
+  results_step0$pvalue[1] <- 1e-10
+
+  # max_steps=1: step 1 runs, if lead passes step becomes 2, then 2>1 triggers warning
+  expect_warning(
+    run_stepwise(
+      results_step0  = results_step0,
+      bigsnp         = d$bigsnp,
+      y              = rnorm(length(d$sample_ids)),
+      snp_indices    = seq_len(nrow(d$bigsnp$map)),
+      cis_snps_pheno = d$bigsnp$map$marker.ID,
+      design_base    = d$design_base,
+      ind.row.snp    = ind.row.snp,
+      do_conditioning = TRUE,
+      pval_threshold = 1,    # threshold of 1 ensures every lead "passes"
+      max_steps      = 1,
+      ncores         = 1,
+      pheno          = "phenoA"
+    ),
+    "max_steps"
+  )
+})
+
+test_that("run_conditional_qtl accepts max_steps argument and passes it through", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+
+  # Just ensure max_steps is accepted without error
+  expect_no_error(
+    run_conditional_qtl(
+      bigpheno    = d$bigpheno,
+      bigsnp      = d$bigsnp,
+      pheno_coord = d$pheno_coord,
+      design_base = d$design_base,
+      max_steps   = 3,
+      output_dir  = out_dir
+    )
+  )
+})
+
+# =========================================================================
+# verbose flag
+# =========================================================================
+
+test_that("run_conditional_qtl with verbose=FALSE suppresses normal messages", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+
+  msgs <- character(0)
+  withCallingHandlers(
+    run_conditional_qtl(
+      bigpheno    = d$bigpheno,
+      bigsnp      = d$bigsnp,
+      pheno_coord = d$pheno_coord,
+      design_base = d$design_base,
+      output_dir  = out_dir,
+      verbose     = FALSE
+    ),
+    message = function(m) {
+      msgs <<- c(msgs, conditionMessage(m))
+      invokeRestart("muffleMessage")
+    }
+  )
+
+  expect_length(msgs, 0)
+})
+
+test_that("run_conditional_qtl with verbose=TRUE emits messages", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+
+  expect_message(
+    run_conditional_qtl(
+      bigpheno    = d$bigpheno,
+      bigsnp      = d$bigsnp,
+      pheno_coord = d$pheno_coord,
+      design_base = d$design_base,
+      output_dir  = out_dir,
+      verbose     = TRUE
+    )
+  )
+})
+

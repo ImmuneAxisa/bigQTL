@@ -14,11 +14,14 @@
 #' @param cis_window Padding around phenotype coordinates (default 1e6)
 #' @param do_conditioning Logical; perform stepwise conditioning (default TRUE)
 #' @param pval_threshold P-value threshold for stepwise conditioning (default 1e-3)
+#' @param max_steps Maximum number of stepwise conditioning steps (default 5)
 #' @param do_allbutone Logical; perform all-but-one conditioning (default TRUE)
 #' @param do_rint Logical; apply RINT transformation to each phenotype (default TRUE)
 #' @param ncores Cores for per-SNP regression within-phenotype (default 1)
 #' @param ncores_phenos Cores for across-phenotype parallelisation (default 1)
 #' @param output_dir Directory for Parquet output (default "./qtl_results")
+#' @param verbose Logical; print per-phenotype progress messages (default FALSE).
+#'   Abnormal events (e.g. sd=0, no cis-SNPs) are always emitted as warnings.
 #'
 #' @return List with elements: stepwise (Arrow dataset), allbutone (Arrow dataset or NULL),
 #'   stepwise_dir, allbutone_dir
@@ -31,11 +34,13 @@ run_conditional_qtl <- function(
     cis_window = 1e6,          # Padding around phenotype coordinates
     do_conditioning = TRUE,
     pval_threshold = 1e-3,
+    max_steps = 5,
     do_allbutone = TRUE,
     do_rint = TRUE,            # Apply RINT transformation to each phenotype (default TRUE)
     ncores = 1,                # Cores for per-SNP regression (within-phenotype)
     ncores_phenos = 1,         # Cores for across-phenotype parallelisation
-    output_dir = "./qtl_results") {
+    output_dir = "./qtl_results",
+    verbose = FALSE) {
   
   # =====================================================================
   # Resolve sample IDs from design_base row names
@@ -63,8 +68,8 @@ run_conditional_qtl <- function(
                  length(missing), paste(head(missing, 3), collapse = ", ")))
   }
   
-  message(sprintf("  Matched %d samples from design_base to bigsnp and bigpheno",
-                  length(sample_ids)))
+  if (verbose) message(sprintf("  Matched %d samples from design_base to bigsnp and bigpheno",
+                               length(sample_ids)))
   
   # Validate pheno_coord
   required_cols <- c("pheno_name", "chromosome", "start", "end")
@@ -98,11 +103,13 @@ run_conditional_qtl <- function(
       cis_window     = cis_window,
       do_conditioning = do_conditioning,
       pval_threshold = pval_threshold,
+      max_steps      = max_steps,
       do_allbutone   = do_allbutone,
       do_rint        = do_rint,
       ncores         = ncores,
       stepwise_dir   = stepwise_dir,
-      allbutone_dir  = allbutone_dir
+      allbutone_dir  = allbutone_dir,
+      verbose        = verbose
     )
   }
   
@@ -116,7 +123,7 @@ run_conditional_qtl <- function(
   # Open and return Parquet datasets
   # =====================================================================
   
-  message("\nOpening Parquet datasets...")
+  if (verbose) message("\nOpening Parquet datasets...")
   
   stepwise_dataset <- arrow::open_dataset(stepwise_dir)
   
@@ -126,7 +133,7 @@ run_conditional_qtl <- function(
     NULL
   }
   
-  message(sprintf("Results saved to: %s", output_dir))
+  if (verbose) message(sprintf("Results saved to: %s", output_dir))
   
   return(list(
     stepwise     = stepwise_dataset,
@@ -214,21 +221,23 @@ bigQTL <- function(bigpheno, bigsnp, pheno_coord, design_base,
 #' @param cis_window Cis window size
 #' @param do_conditioning Logical; perform stepwise conditioning
 #' @param pval_threshold P-value threshold for stepwise conditioning
+#' @param max_steps Maximum number of stepwise conditioning steps (default 5)
 #' @param do_allbutone Logical; perform all-but-one conditioning
 #' @param do_rint Logical; apply RINT to phenotype
 #' @param ncores Number of cores
 #' @param stepwise_dir Output directory for stepwise results
 #' @param allbutone_dir Output directory for all-but-one results
+#' @param verbose Logical; print per-phenotype progress messages (default FALSE)
 #'
 #' @return Invisibly NULL (results written to disk)
 #' @keywords internal
 process_pheno <- function(pheno, bigpheno, bigsnp, pheno_coord,
                           design_base, ind.row.snp, ind.row.pheno,
                           cis_window, do_conditioning, pval_threshold,
-                          do_allbutone, do_rint, ncores,
-                          stepwise_dir, allbutone_dir) {
+                          max_steps = 5, do_allbutone, do_rint, ncores,
+                          stepwise_dir, allbutone_dir, verbose = FALSE) {
   
-  message(sprintf("Processing %s...", pheno))
+  if (verbose) message(sprintf("Processing %s...", pheno))
   
   # Get phenotype coordinates and index
   pheno_row <- pheno_coord[pheno_coord$pheno_name == pheno, ]
@@ -236,6 +245,12 @@ process_pheno <- function(pheno, bigpheno, bigsnp, pheno_coord,
   
   # Extract phenotype for kept individuals
   y <- bigpheno$pheno[ind.row.pheno, pheno_idx]
+  
+  # Check for signal before any transformation
+  if (sd(y) == 0) {
+    warning(sprintf("Skipping %s: sd(y) == 0, phenotype has no signal", pheno))
+    return(invisible(NULL))
+  }
   
   # RINT transform
   if (do_rint) {
@@ -249,11 +264,11 @@ process_pheno <- function(pheno, bigpheno, bigsnp, pheno_coord,
   cis_snps_pheno <- cis_result$names
   
   if (length(snp_indices) == 0) {
-    message(sprintf("  No cis SNPs found for %s", pheno))
+    warning(sprintf("Skipping %s: no cis SNPs found", pheno))
     return(invisible(NULL))
   }
   
-  message(sprintf("  Found %d cis SNPs", length(snp_indices)))
+  if (verbose) message(sprintf("  Found %d cis SNPs", length(snp_indices)))
   
   # ==== Step 0: Marginal testing ====
   
@@ -284,7 +299,10 @@ process_pheno <- function(pheno, bigpheno, bigsnp, pheno_coord,
     ind.row.snp    = ind.row.snp,
     do_conditioning = do_conditioning,
     pval_threshold = pval_threshold,
-    ncores         = ncores
+    max_steps      = max_steps,
+    ncores         = ncores,
+    pheno          = pheno,
+    verbose        = verbose
   )
   
   stepwise_all <- stepwise_result$stepwise_tables
@@ -302,7 +320,8 @@ process_pheno <- function(pheno, bigpheno, bigsnp, pheno_coord,
     design_base       = design_base,
     ind.row.snp       = ind.row.snp,
     do_allbutone      = do_allbutone,
-    ncores            = ncores
+    ncores            = ncores,
+    verbose           = verbose
   )
   
   # ==== Write results ====
@@ -313,14 +332,14 @@ process_pheno <- function(pheno, bigpheno, bigsnp, pheno_coord,
   sw_dir <- file.path(stepwise_dir, pheno_partition)
   dir.create(sw_dir, recursive = TRUE, showWarnings = FALSE)
   arrow::write_parquet(do.call(rbind, stepwise_all), file.path(sw_dir, "part-0.parquet"))
-  message(sprintf("    Wrote stepwise results to %s", pheno_partition))
+  if (verbose) message(sprintf("    Wrote stepwise results to %s", pheno_partition))
   
   # All-but-one
   if (length(allbutone_all) > 0) {
     abo_dir <- file.path(allbutone_dir, pheno_partition)
     dir.create(abo_dir, recursive = TRUE, showWarnings = FALSE)
     arrow::write_parquet(do.call(rbind, allbutone_all), file.path(abo_dir, "part-0.parquet"))
-    message(sprintf("    Wrote all-but-one results to %s", pheno_partition))
+    if (verbose) message(sprintf("    Wrote all-but-one results to %s", pheno_partition))
   }
   
   return(invisible(NULL))
@@ -342,13 +361,17 @@ process_pheno <- function(pheno, bigpheno, bigsnp, pheno_coord,
 #' @param ind.row.snp Integer vector of row indices for samples in genotype FBM
 #' @param do_conditioning Logical; perform stepwise conditioning
 #' @param pval_threshold P-value threshold for stepwise conditioning
+#' @param max_steps Maximum number of conditioning steps (default 5)
 #' @param ncores Number of cores
+#' @param pheno Phenotype name (used in warning messages)
+#' @param verbose Logical; print progress messages (default FALSE)
 #'
 #' @return List with elements: stepwise_tables, conditioning_snps
 #' @keywords internal
 run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
                          cis_snps_pheno, design_base, ind.row.snp,
-                         do_conditioning, pval_threshold, ncores) {
+                         do_conditioning, pval_threshold, max_steps = 5,
+                         ncores, pheno = NULL, verbose = FALSE) {
   
   stepwise_tables <- list(results_step0)
   conditioning_snps <- character()
@@ -366,13 +389,20 @@ run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
                 conditioning_snps = conditioning_snps))
   }
   
-  message(sprintf("  Step 0: Lead SNP %s passes (p = %.2e)",
-                  lead$snp, lead$pvalue))
+  if (verbose) message(sprintf("  Step 0: Lead SNP %s passes (p = %.2e)",
+                               lead$snp, lead$pvalue))
   
   conditioning_snps <- lead$snp
   step <- 1
   
   while (TRUE) {
+    
+    if (step > max_steps) {
+      pheno_label <- if (!is.null(pheno)) sprintf(" for %s", pheno) else ""
+      warning(sprintf("max_steps (%d) reached%s; stopping stepwise conditioning",
+                      max_steps, pheno_label))
+      break
+    }
     
     results_step <- test_snps_with_indices(
       bigsnp           = bigsnp,
@@ -395,13 +425,13 @@ run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
     new_lead <- results_step[which.min(results_step$pvalue), ]
     
     if (new_lead$pvalue < pval_threshold) {
-      message(sprintf("    Step %d: New lead SNP %s passes (p = %.2e)",
-                      step, new_lead$snp, new_lead$pvalue))
+      if (verbose) message(sprintf("    Step %d: New lead SNP %s passes (p = %.2e)",
+                                   step, new_lead$snp, new_lead$pvalue))
       conditioning_snps <- c(conditioning_snps, new_lead$snp)
       step <- step + 1
     } else {
-      message(sprintf("    Step %d: Stopping (min p = %.2e)",
-                      step, new_lead$pvalue))
+      if (verbose) message(sprintf("    Step %d: Stopping (min p = %.2e)",
+                                   step, new_lead$pvalue))
       break
     }
   }
@@ -427,19 +457,20 @@ run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
 #' @param ind.row.snp Integer vector of row indices for samples in genotype FBM
 #' @param do_allbutone Logical; perform all-but-one conditioning
 #' @param ncores Number of cores
+#' @param verbose Logical; print progress messages (default FALSE)
 #'
 #' @return List of data frames with all-but-one results
 #' @keywords internal
 run_allbutone <- function(conditioning_snps, stepwise_tables, bigsnp, y,
                           snp_indices, cis_snps_pheno, design_base,
-                          ind.row.snp, do_allbutone, ncores) {
+                          ind.row.snp, do_allbutone, ncores, verbose = FALSE) {
   
   if (!do_allbutone || length(conditioning_snps) <= 1) {
     return(list())
   }
   
-  message(sprintf("  Running all-but-one conditioning for %d SNPs",
-                  length(conditioning_snps)))
+  if (verbose) message(sprintf("  Running all-but-one conditioning for %d SNPs",
+                               length(conditioning_snps)))
   
   allbutone_tables <- list()
   
