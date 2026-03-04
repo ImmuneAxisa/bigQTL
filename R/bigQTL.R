@@ -1,41 +1,41 @@
 # =========================================================================
-# MAIN FUNCTION: Conditional eQTL analysis
+# MAIN FUNCTION: Conditional QTL analysis
 # =========================================================================
 
-#' Run conditional eQTL analysis
+#' Run conditional QTL analysis
 #'
 #' Performs conditional cis-QTL analysis using stepwise conditioning and
-#' all-but-one conditioning on file-backed genotype and feature matrices.
+#' all-but-one conditioning on file-backed genotype and phenotype matrices.
 #'
-#' @param bigfeatures bigFeatures object with expression data (samples x features)
+#' @param bigpheno bigPheno object with phenotype data (samples x phenotypes)
 #' @param bigsnp bigSNP object with genotype data (samples x snps)
-#' @param features_coord Data frame with feature_name, chromosome, start, end columns
+#' @param pheno_coord Data frame with pheno_name, chromosome, start, end columns
 #' @param design_base Data frame with covariates; row names = sample IDs
-#' @param cis_window Padding around feature coordinates (default 1e6)
+#' @param cis_window Padding around phenotype coordinates (default 1e6)
 #' @param do_conditioning Logical; perform stepwise conditioning (default TRUE)
 #' @param pval_threshold P-value threshold for stepwise conditioning (default 1e-3)
 #' @param do_allbutone Logical; perform all-but-one conditioning (default TRUE)
-#' @param do_rint Logical; apply RINT to phenotype per gene (default TRUE)
-#' @param ncores Cores for per-SNP regression within-gene (default 1)
-#' @param ncores_genes Cores for across-gene parallelisation (default 1)
-#' @param output_dir Directory for Parquet output (default "./eqtl_results")
+#' @param do_rint Logical; apply RINT transformation to each phenotype (default TRUE)
+#' @param ncores Cores for per-SNP regression within-phenotype (default 1)
+#' @param ncores_phenos Cores for across-phenotype parallelisation (default 1)
+#' @param output_dir Directory for Parquet output (default "./qtl_results")
 #'
 #' @return List with elements: stepwise (Arrow dataset), allbutone (Arrow dataset or NULL),
 #'   stepwise_dir, allbutone_dir
 #' @export
-run_conditional_eqtl <- function(
-    bigfeatures,               # bigFeatures object with expression data (samples x features)
+run_conditional_qtl <- function(
+    bigpheno,                  # bigPheno object with phenotype data (samples x phenotypes)
     bigsnp,                    # bigSNP object with genotype data (samples x snps)
-    features_coord,            # Data frame with feature_name, chromosome, start, end columns
+    pheno_coord,               # Data frame with pheno_name, chromosome, start, end columns
     design_base,               # Data frame with covariates; row names = sample IDs
-    cis_window = 1e6,          # Padding around feature coordinates
+    cis_window = 1e6,          # Padding around phenotype coordinates
     do_conditioning = TRUE,
     pval_threshold = 1e-3,
     do_allbutone = TRUE,
-    do_rint = TRUE,            # Apply RINT to phenotype per gene (default TRUE)
-    ncores = 1,                # Cores for per-SNP regression (within-gene)
-    ncores_genes = 1,          # Cores for across-gene parallelisation
-    output_dir = "./eqtl_results") {
+    do_rint = TRUE,            # Apply RINT transformation to each phenotype (default TRUE)
+    ncores = 1,                # Cores for per-SNP regression (within-phenotype)
+    ncores_phenos = 1,         # Cores for across-phenotype parallelisation
+    output_dir = "./qtl_results") {
   
   # =====================================================================
   # Resolve sample IDs from design_base row names
@@ -55,21 +55,21 @@ run_conditional_eqtl <- function(
                  length(missing), paste(head(missing, 3), collapse = ", ")))
   }
   
-  # Map to feature row indices
-  ind.row.feat <- match(sample_ids, bigfeatures$rowData$sample_name)
-  if (any(is.na(ind.row.feat))) {
-    missing <- sample_ids[is.na(ind.row.feat)]
-    stop(sprintf("%d sample ID(s) from design_base not found in bigfeatures$rowData$sample_name: %s",
+  # Map to phenotype row indices
+  ind.row.pheno <- match(sample_ids, bigpheno$rowData$sample_name)
+  if (any(is.na(ind.row.pheno))) {
+    missing <- sample_ids[is.na(ind.row.pheno)]
+    stop(sprintf("%d sample ID(s) from design_base not found in bigpheno$rowData$sample_name: %s",
                  length(missing), paste(head(missing, 3), collapse = ", ")))
   }
   
-  message(sprintf("  Matched %d samples from design_base to bigsnp and bigfeatures",
+  message(sprintf("  Matched %d samples from design_base to bigsnp and bigpheno",
                   length(sample_ids)))
   
-  # Validate features_coord
-  required_cols <- c("feature_name", "chromosome", "start", "end")
-  if (!all(required_cols %in% colnames(features_coord))) {
-    stop(sprintf("features_coord must contain columns: %s",
+  # Validate pheno_coord
+  required_cols <- c("pheno_name", "chromosome", "start", "end")
+  if (!all(required_cols %in% colnames(pheno_coord))) {
+    stop(sprintf("pheno_coord must contain columns: %s",
                  paste(required_cols, collapse = ", ")))
   }
   
@@ -81,20 +81,20 @@ run_conditional_eqtl <- function(
   if (!dir.exists(allbutone_dir)) dir.create(allbutone_dir, recursive = TRUE)
   
   # =====================================================================
-  # Process genes (parallelised with mclapply or sequential with lapply)
+  # Process phenotypes (parallelised with mclapply or sequential with lapply)
   # =====================================================================
   
-  genes <- features_coord$feature_name
+  phenos <- pheno_coord$pheno_name
   
-  process_fn <- function(gene) {
-    process_gene(
-      gene           = gene,
-      bigfeatures    = bigfeatures,
+  process_fn <- function(pheno) {
+    process_pheno(
+      pheno          = pheno,
+      bigpheno       = bigpheno,
       bigsnp         = bigsnp,
-      features_coord = features_coord,
+      pheno_coord    = pheno_coord,
       design_base    = design_base,
       ind.row.snp    = ind.row.snp,
-      ind.row.feat   = ind.row.feat,
+      ind.row.pheno  = ind.row.pheno,
       cis_window     = cis_window,
       do_conditioning = do_conditioning,
       pval_threshold = pval_threshold,
@@ -106,10 +106,10 @@ run_conditional_eqtl <- function(
     )
   }
   
-  if (ncores_genes > 1) {
-    parallel::mclapply(genes, process_fn, mc.cores = ncores_genes)
+  if (ncores_phenos > 1) {
+    parallel::mclapply(phenos, process_fn, mc.cores = ncores_phenos)
   } else {
-    lapply(genes, process_fn)
+    lapply(phenos, process_fn)
   }
   
   # =====================================================================
@@ -138,18 +138,79 @@ run_conditional_eqtl <- function(
 
 
 # =========================================================================
-# PER-GENE FUNCTION: Process a single gene
+# WRAPPER FUNCTION: bigQTL — standard preparation + QTL analysis
 # =========================================================================
 
-#' Process a single gene for conditional eQTL analysis
+#' Run bigQTL: standard preparation and conditional QTL analysis
 #'
-#' @param gene Gene name to process
-#' @param bigfeatures bigFeatures object
+#' A convenience wrapper around \code{run_conditional_qtl()} that first
+#' computes phenotype PCs and genotype PCs using the package helper
+#' functions, appends them to \code{design_base}, and then runs the full
+#' conditional QTL analysis.
+#'
+#' @param bigpheno bigPheno object with phenotype data (samples x phenotypes)
+#' @param bigsnp bigSNP object with genotype data (samples x snps)
+#' @param pheno_coord Data frame with pheno_name, chromosome, start, end columns
+#' @param design_base Data frame with covariates; row names = sample IDs
+#' @param n_pheno_pcs Number of phenotype PCs to compute and add as covariates
+#'   (default 5)
+#' @param n_geno_pcs Number of genotype PCs to compute and add as covariates
+#'   (default 5)
+#' @param exclude_pheno_names Character vector of phenotype names to exclude
+#'   from phenotype PCA (e.g. sex-chromosome phenotypes). Default NULL.
+#' @param ... Additional arguments passed to \code{run_conditional_qtl()}
+#'
+#' @return List with elements: stepwise (Arrow dataset), allbutone (Arrow dataset or NULL),
+#'   stepwise_dir, allbutone_dir
+#' @export
+bigQTL <- function(bigpheno, bigsnp, pheno_coord, design_base,
+                   n_pheno_pcs = 5, n_geno_pcs = 5,
+                   exclude_pheno_names = NULL, ...) {
+
+  keep_ids <- rownames(design_base)
+
+  # Compute phenotype PCs and append to design
+  pheno_pcs <- compute_pheno_pcs(
+    bigpheno           = bigpheno,
+    keep_ids           = keep_ids,
+    n_pcs              = n_pheno_pcs,
+    exclude_pheno_names = exclude_pheno_names
+  )
+  pheno_pcs_aligned <- pheno_pcs[keep_ids, , drop = FALSE]
+
+  # Compute genotype PCs and append to design
+  geno_pcs <- compute_geno_pcs(
+    bigsnp   = bigsnp,
+    keep_ids = keep_ids,
+    n_pcs    = n_geno_pcs
+  )
+  geno_pcs_aligned <- geno_pcs[keep_ids, , drop = FALSE]
+
+  design_augmented <- cbind(design_base, pheno_pcs_aligned, geno_pcs_aligned)
+
+  run_conditional_qtl(
+    bigpheno    = bigpheno,
+    bigsnp      = bigsnp,
+    pheno_coord = pheno_coord,
+    design_base = design_augmented,
+    ...
+  )
+}
+
+
+# =========================================================================
+# PER-PHENOTYPE FUNCTION: Process a single phenotype
+# =========================================================================
+
+#' Process a single phenotype for conditional QTL analysis
+#'
+#' @param pheno Phenotype name to process
+#' @param bigpheno bigPheno object
 #' @param bigsnp bigSNP object
-#' @param features_coord Data frame with gene coordinates
+#' @param pheno_coord Data frame with phenotype coordinates
 #' @param design_base Data frame with covariates
 #' @param ind.row.snp Row indices into genotype FBM for samples
-#' @param ind.row.feat Row indices into feature FBM for samples
+#' @param ind.row.pheno Row indices into phenotype FBM for samples
 #' @param cis_window Cis window size
 #' @param do_conditioning Logical; perform stepwise conditioning
 #' @param pval_threshold P-value threshold for stepwise conditioning
@@ -161,20 +222,20 @@ run_conditional_eqtl <- function(
 #'
 #' @return Invisibly NULL (results written to disk)
 #' @keywords internal
-process_gene <- function(gene, bigfeatures, bigsnp, features_coord,
-                         design_base, ind.row.snp, ind.row.feat,
-                         cis_window, do_conditioning, pval_threshold,
-                         do_allbutone, do_rint, ncores,
-                         stepwise_dir, allbutone_dir) {
+process_pheno <- function(pheno, bigpheno, bigsnp, pheno_coord,
+                          design_base, ind.row.snp, ind.row.pheno,
+                          cis_window, do_conditioning, pval_threshold,
+                          do_allbutone, do_rint, ncores,
+                          stepwise_dir, allbutone_dir) {
   
-  message(sprintf("Processing %s...", gene))
+  message(sprintf("Processing %s...", pheno))
   
-  # Get gene coordinates and feature index
-  gene_row <- features_coord[features_coord$feature_name == gene, ]
-  gene_idx <- get_feature_indices(bigfeatures, gene)
+  # Get phenotype coordinates and index
+  pheno_row <- pheno_coord[pheno_coord$pheno_name == pheno, ]
+  pheno_idx <- get_pheno_indices(bigpheno, pheno)
   
   # Extract phenotype for kept individuals
-  y <- bigfeatures$features[ind.row.feat, gene_idx]
+  y <- bigpheno$pheno[ind.row.pheno, pheno_idx]
   
   # RINT transform
   if (do_rint) {
@@ -182,13 +243,13 @@ process_gene <- function(gene, bigfeatures, bigsnp, features_coord,
   }
   
   # Get cis SNPs
-  cis_result <- get_cis_snps(bigsnp, gene_row$chromosome,
-                             gene_row$start, gene_row$end, cis_window)
+  cis_result <- get_cis_snps(bigsnp, pheno_row$chromosome,
+                             pheno_row$start, pheno_row$end, cis_window)
   snp_indices <- cis_result$indices
-  cis_snps_gene <- cis_result$names
+  cis_snps_pheno <- cis_result$names
   
   if (length(snp_indices) == 0) {
-    message(sprintf("  No cis SNPs found for %s", gene))
+    message(sprintf("  No cis SNPs found for %s", pheno))
     return(invisible(NULL))
   }
   
@@ -200,7 +261,7 @@ process_gene <- function(gene, bigfeatures, bigsnp, features_coord,
     bigsnp      = bigsnp,
     y           = y,
     snp_indices = snp_indices,
-    snp_names   = cis_snps_gene,
+    snp_names   = cis_snps_pheno,
     design_base = design_base,
     ind.row     = ind.row.snp,
     ncores      = ncores
@@ -218,7 +279,7 @@ process_gene <- function(gene, bigfeatures, bigsnp, features_coord,
     bigsnp         = bigsnp,
     y              = y,
     snp_indices    = snp_indices,
-    cis_snps_gene  = cis_snps_gene,
+    cis_snps_pheno = cis_snps_pheno,
     design_base    = design_base,
     ind.row.snp    = ind.row.snp,
     do_conditioning = do_conditioning,
@@ -237,7 +298,7 @@ process_gene <- function(gene, bigfeatures, bigsnp, features_coord,
     bigsnp            = bigsnp,
     y                 = y,
     snp_indices       = snp_indices,
-    cis_snps_gene     = cis_snps_gene,
+    cis_snps_pheno    = cis_snps_pheno,
     design_base       = design_base,
     ind.row.snp       = ind.row.snp,
     do_allbutone      = do_allbutone,
@@ -246,20 +307,20 @@ process_gene <- function(gene, bigfeatures, bigsnp, features_coord,
   
   # ==== Write results ====
   
-  gene_partition <- paste0("gene=", gene)
+  pheno_partition <- paste0("pheno=", pheno)
   
   # Stepwise
-  sw_dir <- file.path(stepwise_dir, gene_partition)
+  sw_dir <- file.path(stepwise_dir, pheno_partition)
   dir.create(sw_dir, recursive = TRUE, showWarnings = FALSE)
   arrow::write_parquet(do.call(rbind, stepwise_all), file.path(sw_dir, "part-0.parquet"))
-  message(sprintf("    Wrote stepwise results to %s", gene_partition))
+  message(sprintf("    Wrote stepwise results to %s", pheno_partition))
   
   # All-but-one
   if (length(allbutone_all) > 0) {
-    abo_dir <- file.path(allbutone_dir, gene_partition)
+    abo_dir <- file.path(allbutone_dir, pheno_partition)
     dir.create(abo_dir, recursive = TRUE, showWarnings = FALSE)
     arrow::write_parquet(do.call(rbind, allbutone_all), file.path(abo_dir, "part-0.parquet"))
-    message(sprintf("    Wrote all-but-one results to %s", gene_partition))
+    message(sprintf("    Wrote all-but-one results to %s", pheno_partition))
   }
   
   return(invisible(NULL))
@@ -270,13 +331,13 @@ process_gene <- function(gene, bigfeatures, bigsnp, features_coord,
 # STEPWISE CONDITIONING
 # =========================================================================
 
-#' Run stepwise conditioning for a gene
+#' Run stepwise conditioning for a phenotype
 #'
 #' @param results_step0 Data frame of marginal association results (step 0)
 #' @param bigsnp bigSNP object
 #' @param y Numeric phenotype vector
 #' @param snp_indices Integer vector of cis-SNP column indices
-#' @param cis_snps_gene Character vector of cis-SNP names
+#' @param cis_snps_pheno Character vector of cis-SNP names
 #' @param design_base Data frame of covariates
 #' @param ind.row.snp Integer vector of row indices for samples in genotype FBM
 #' @param do_conditioning Logical; perform stepwise conditioning
@@ -286,7 +347,7 @@ process_gene <- function(gene, bigfeatures, bigsnp, features_coord,
 #' @return List with elements: stepwise_tables, conditioning_snps
 #' @keywords internal
 run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
-                         cis_snps_gene, design_base, ind.row.snp,
+                         cis_snps_pheno, design_base, ind.row.snp,
                          do_conditioning, pval_threshold, ncores) {
   
   stepwise_tables <- list(results_step0)
@@ -317,7 +378,7 @@ run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
       bigsnp           = bigsnp,
       y                = y,
       snp_indices      = snp_indices,
-      snp_names        = cis_snps_gene,
+      snp_names        = cis_snps_pheno,
       design_base      = design_base,
       ind.row          = ind.row.snp,
       snp_conditioning = conditioning_snps,
@@ -354,14 +415,14 @@ run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
 # ALL-BUT-ONE CONDITIONING
 # =========================================================================
 
-#' Run all-but-one conditioning for a gene
+#' Run all-but-one conditioning for a phenotype
 #'
 #' @param conditioning_snps Character vector of independent SNP names
 #' @param stepwise_tables List of data frames from stepwise conditioning
 #' @param bigsnp bigSNP object
 #' @param y Numeric phenotype vector
 #' @param snp_indices Integer vector of cis-SNP column indices
-#' @param cis_snps_gene Character vector of cis-SNP names
+#' @param cis_snps_pheno Character vector of cis-SNP names
 #' @param design_base Data frame of covariates
 #' @param ind.row.snp Integer vector of row indices for samples in genotype FBM
 #' @param do_allbutone Logical; perform all-but-one conditioning
@@ -370,7 +431,7 @@ run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
 #' @return List of data frames with all-but-one results
 #' @keywords internal
 run_allbutone <- function(conditioning_snps, stepwise_tables, bigsnp, y,
-                          snp_indices, cis_snps_gene, design_base,
+                          snp_indices, cis_snps_pheno, design_base,
                           ind.row.snp, do_allbutone, ncores) {
   
   if (!do_allbutone || length(conditioning_snps) <= 1) {
@@ -401,7 +462,7 @@ run_allbutone <- function(conditioning_snps, stepwise_tables, bigsnp, y,
         bigsnp           = bigsnp,
         y                = y,
         snp_indices      = snp_indices,
-        snp_names        = cis_snps_gene,
+        snp_names        = cis_snps_pheno,
         design_base      = design_base,
         ind.row          = ind.row.snp,
         snp_conditioning = snps_condition_on,

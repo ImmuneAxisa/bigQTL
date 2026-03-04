@@ -4,7 +4,7 @@
 \alias{compute_geno_pcs}
 \title{Compute genotype principal components}
 \usage{
-compute_geno_pcs(bigsnp, keep_ids = NULL, n_pcs = 5, ncores = 1)
+compute_geno_pcs(bigsnp, keep_ids = NULL, n_pcs = 5, exclude_snp_names = NULL, ncores = 1)
 }
 \arguments{
 \item{bigsnp}{bigSNP object with \code{$genotypes} (FBM), \code{$fam}
@@ -17,6 +17,9 @@ are used.}
 
 \item{n_pcs}{Number of principal components to retain (default 5)}
 
+\item{exclude_snp_names}{Character vector of SNP names to exclude from PCA.
+Uses \code{get_snp_indices()} to map names to indices. Default NULL.}
+
 \item{ncores}{Number of cores for parallel computation (default 1)}
 }
 \value{
@@ -25,7 +28,8 @@ genoPC1, genoPC2, ..., genoPCn. Row names are the sample IDs of the kept
 individuals.
 }
 \description{
-Runs PCA on genotype data using bigsnpr, optionally subsetting individuals.
+Runs PCA on genotype data using bigsnpr, optionally subsetting individuals
+and/or excluding specific SNPs.
 Uses \code{bigsnpr::snp_autoSVD()} which performs PCA with automatic removal
 of long-range LD regions and outlier variants (robust to LD structure).
 }

@@ -4,9 +4,9 @@ Version: 0.0.0.9000
 Authors@R: 
     person("Pierre-Paul", "Axisa", role = c("aut", "cre"), email = "pp.axisa@gmail.com")
 Description: Performs conditional cis-QTL analysis (stepwise conditioning 
-    and all-but-one) using file-backed genotype and feature matrices from 
+    and all-but-one) using file-backed genotype and phenotype matrices from 
     the bigstatsr/bigsnpr ecosystem. Includes eigenMT multiple testing 
-    correction and data preparation utilities (genotype PCA, feature PCA, 
+    correction and data preparation utilities (genotype PCA, phenotype PCA, 
     RINT transformation).
 License: CC BY 4.0
 Encoding: UTF-8

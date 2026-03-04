@@ -1,18 +1,41 @@
-test_that("get_feature_indices returns correct indices", {
+test_that("get_pheno_indices returns correct indices", {
   m <- matrix(1:12, nrow = 3, ncol = 4)
   colnames(m) <- c("GeneA", "GeneB", "GeneC", "GeneD")
-  bf <- bigFeatures(m)
+  bp <- bigPheno(m)
 
-  idx <- get_feature_indices(bf, c("GeneC", "GeneA"))
+  idx <- get_pheno_indices(bp, c("GeneC", "GeneA"))
   expect_equal(idx, c(3L, 1L))
 })
 
-test_that("get_feature_indices errors on missing feature", {
+test_that("get_pheno_indices errors on missing phenotype", {
   m <- matrix(1:6, nrow = 2, ncol = 3)
   colnames(m) <- c("GeneA", "GeneB", "GeneC")
-  bf <- bigFeatures(m)
+  bp <- bigPheno(m)
 
-  expect_error(get_feature_indices(bf, "GeneX"), "Could not find")
+  expect_error(get_pheno_indices(bp, "GeneX"), "Could not find")
+})
+
+test_that("get_snp_indices returns correct indices", {
+  snp_map <- data.frame(
+    chromosome   = c("1", "1", "2"),
+    marker.ID    = c("rs1", "rs2", "rs3"),
+    physical.pos = c(1000L, 2000L, 5000L),
+    stringsAsFactors = FALSE
+  )
+  bigsnp <- list(map = snp_map)
+
+  idx <- get_snp_indices(bigsnp, c("rs3", "rs1"))
+  expect_equal(idx, c(3L, 1L))
+})
+
+test_that("get_snp_indices errors on missing SNP", {
+  snp_map <- data.frame(
+    marker.ID = c("rs1", "rs2"),
+    stringsAsFactors = FALSE
+  )
+  bigsnp <- list(map = snp_map)
+
+  expect_error(get_snp_indices(bigsnp, "rs99"), "Could not find")
 })
 
 test_that("get_cis_snps returns empty lists when no SNPs in window", {

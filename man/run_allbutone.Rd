@@ -2,7 +2,7 @@
 % Please edit documentation in R/bigQTL.R
 \name{run_allbutone}
 \alias{run_allbutone}
-\title{Run all-but-one conditioning for a gene}
+\title{Run all-but-one conditioning for a phenotype}
 \usage{
 run_allbutone(
   conditioning_snps,
@@ -10,7 +10,7 @@ run_allbutone(
   bigsnp,
   y,
   snp_indices,
-  cis_snps_gene,
+  cis_snps_pheno,
   design_base,
   ind.row.snp,
   do_allbutone,
@@ -28,7 +28,7 @@ run_allbutone(
 
 \item{snp_indices}{Integer vector of cis-SNP column indices}
 
-\item{cis_snps_gene}{Character vector of cis-SNP names}
+\item{cis_snps_pheno}{Character vector of cis-SNP names}
 
 \item{design_base}{Data frame of covariates}
 
@@ -42,6 +42,6 @@ run_allbutone(
 List of data frames with all-but-one results
 }
 \description{
-Run all-but-one conditioning for a gene
+Run all-but-one conditioning for a phenotype
 }
 \keyword{internal}

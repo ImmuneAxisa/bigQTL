@@ -22,18 +22,21 @@ Table of contents
 - Contact
 
 Features
-- Conditional eQTL analysis
-  - run_conditional_eqtl(): stepwise conditioning and all-but-one conditioning
-  - process_gene(), run_stepwise(), run_allbutone()
+- Conditional QTL analysis
+  - bigQTL(): all-in-one wrapper with automatic PC computation
+  - run_conditional_qtl(): stepwise conditioning and all-but-one conditioning
+  - process_pheno(), run_stepwise(), run_allbutone()
 - eigenMT multiple-testing correction
   - lw_shrink_cor(), count_eigenvalues(), eigenMT_gene(), eigenMT_batch()
 - Data-preparation utilities
-  - compute_geno_pcs(), compute_feature_pcs(), rint()
-- bigFeatures S3 class for wrapping expression/feature matrices in an FBM
+  - compute_geno_pcs(), compute_pheno_pcs(), rint()
+- Helper utilities
+  - get_pheno_indices(), get_snp_indices(), get_cis_snps(), add_snps_to_covariates()
+- bigPheno S3 class for wrapping phenotype/expression matrices in an FBM
 - Output written as partitioned Apache Parquet datasets (via arrow)
 - Parallelism controls:
-  - `ncores` — parallelism within-gene (SNP-level)
-  - `ncores_genes` — parallelism across genes
+  - `ncores` — parallelism within-phenotype (SNP-level)
+  - `ncores_phenos` — parallelism across phenotypes
 
 System requirements
 - R >= 4.1
@@ -91,15 +94,14 @@ reticulate::conda_create(
 
 Below are short examples demonstrating common workflows. These assume you have:
 - A bigSNP object (from bigsnpr) or genotype FBM
-- A bigFeatures object or expression FBM
-- A design matrix with sample IDs that match the genotype and feature objects
+- A bigPheno object or expression FBM
+- A design matrix with sample IDs that match the genotype and phenotype objects
 
-1) Construct a bigFeatures object (example)
+1) Construct a bigPheno object (example)
 ```r
 library(bigQTL)
-# Suppose expr_fbm is a bigstatsr::FBM with rows = samples, cols = features
-# rowData contains a data.frame with sample_name, feature_id, gene_name, etc.
-bf <- bigFeatures(expr_fbm, rowData = my_rowdata)
+# Suppose expr_mat is a matrix with rows = samples, cols = phenotypes
+bp <- bigPheno(expr_mat, rowData = my_rowdata)
 ```
 
 2) Compute genotype PCs (recommended)
@@ -107,55 +109,37 @@ bf <- bigFeatures(expr_fbm, rowData = my_rowdata)
 pcs <- compute_geno_pcs(bigsnp, n_pcs = 10, ncores = 4)
 ```
 
-3) Run stepwise conditional cis-QTL analysis for a single gene
+3) Run all-in-one QTL analysis (computes PCs automatically)
 ```r
-res <- run_conditional_eqtl(
-  gene = "GENE1",
-  bigsnpr_obj = bigsnp,
-  bigfeatures = bf,
+res <- bigQTL(
+  bigpheno    = bp,
+  bigsnp      = bigsnp,
+  pheno_coord = pheno_coord_df,  # data.frame with pheno_name, chromosome, start, end
   design_base = design_matrix,   # rownames must be sample IDs
-  window_kb = 1000,
-  ncores = 4,
-  do_rint = TRUE
+  n_pheno_pcs = 5,
+  n_geno_pcs  = 5,
+  output_dir  = "output/"
 )
-# res is a list/data.frame with stepwise results for the gene
 ```
 
-4) Run batch stepwise for many genes (across-gene parallelism)
+4) Run stepwise conditional cis-QTL analysis directly
 ```r
-run_conditional_eqtl(
-  genes = c("GENE1", "GENE2", "GENE3"),
-  bigsnpr_obj = bigsnp,
-  bigfeatures = bf,
+res <- run_conditional_qtl(
+  bigpheno    = bp,
+  bigsnp      = bigsnp,
+  pheno_coord = pheno_coord_df,
   design_base = design_matrix,
-  output_dir = "output/",
-  ncores = 4,
-  ncores_genes = 8
+  output_dir  = "output/",
+  ncores      = 4,
+  ncores_phenos = 8
 )
-# Writes partitioned Parquet files under output_dir/stepwise/gene=<name>/
+# Writes partitioned Parquet files under output_dir/stepwise/pheno=<name>/
 ```
 
-5) Apply eigenMT correction per gene or in batch
+5) Apply eigenMT correction per phenotype or in batch
 ```r
-# Compute effective number of tests for a single gene
-neff <- eigenMT_gene(geno_cor_matrix, method = "lw")  # uses Ledoit–Wolf shrinkage
-
-# Run eigenMT over a batch of genes (vectorized)
-eigenMT_batch(feature_cor_list, method = "lw", ncores = 4)
-```
-
-Example: Using run_allbutone (all-but-one conditioning)
-```r
-res_allbutone <- run_conditional_eqtl(
-  gene = "GENE1",
-  mode = "allbutone",
-  bigsnpr_obj = bigsnp,
-  bigfeatures = bf,
-  design_base = design_matrix,
-  output_dir = "output/",
-  ncores = 4
-)
-# Writes output under output_dir/allbutone/gene=GENE1/
+# Run eigenMT over a batch of phenotypes
+eigenMT_batch(bigsnp, pheno_coord = pheno_coord_df, ind.row = ind_row, ncores = 4)
 ```
 
 # Notes
@@ -163,18 +147,18 @@ res_allbutone <- run_conditional_eqtl(
 Output format
 - Results are written as partitioned Apache Parquet datasets using the arrow package.
 - Output layout:
-  - output_dir/stepwise/gene=<GENE>/part-0.parquet
-  - output_dir/allbutone/gene=<GENE>/part-0.parquet
-- Parquet schema is column-oriented and partitioned by gene for easy downstream aggregation.
-- Each row corresponds to a SNP test (or conditional step) with metadata: gene, SNP id, position, effect size, SE, p-value, q-value, eigenMT_neff, conditioned_snps, step_index, etc.
+  - output_dir/stepwise/pheno=<PHENO>/part-0.parquet
+  - output_dir/allbutone/pheno=<PHENO>/part-0.parquet
+- Parquet schema is column-oriented and partitioned by phenotype for easy downstream aggregation.
+- Each row corresponds to a SNP test (or conditional step) with metadata: phenotype, SNP id, position, effect size, SE, p-value, q-value, conditioned_snps, step_index, etc.
 
 Conventions & best practices
-- File-backed matrices (FBM): All genotype and feature data should live on disk as bigstatsr::FBM objects. Avoid materializing large matrices into memory.
-- Sample ID matching: design_base rownames must be meaningful sample IDs that appear in both bigsnp$fam$sample.ID and bigfeatures$rowData$sample_name.
+- File-backed matrices (FBM): All genotype and phenotype data should live on disk as bigstatsr::FBM objects. Avoid materializing large matrices into memory.
+- Sample ID matching: design_base rownames must be meaningful sample IDs that appear in both bigsnp$fam$sample.ID and bigpheno$rowData$sample_name.
 - Parallelism:
   - ncores: parallelism for inner loops (SNP-level operations)
-  - ncores_genes: parallelism across genes (useful for multi-core servers)
-- RINT (rank inverse normal transform): default do_rint = TRUE. Keeps phenotypes well-behaved across genes.
+  - ncores_phenos: parallelism across phenotypes (useful for multi-core servers)
+- RINT (rank inverse normal transform): default do_rint = TRUE. Keeps phenotypes well-behaved across phenotypes.
 - eigenMT: uses Ledoit–Wolf shrinkage estimator for stable correlation estimates when sample size is limited compared to number of SNPs.
 
 Vignettes & validation
@@ -202,4 +186,4 @@ Contact
 - For questions, open a discussion or issue detailing your use case and data setup
 
 Notes
-- bigQTL is designed for large-scale, production-style eQTL analyses where disk-backed storage and memory efficiency are critical. If you are exploring small proofs-of-concept, in-memory approaches may be simpler — but for realistic genotype / expression sizes, use FBMs and the provided workflows.
+- bigQTL is designed for large-scale, production-style QTL analyses where disk-backed storage and memory efficiency are critical. If you are exploring small proofs-of-concept, in-memory approaches may be simpler — but for realistic genotype / phenotype sizes, use FBMs and the provided workflows.

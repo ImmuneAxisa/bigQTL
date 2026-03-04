@@ -1,6 +1,6 @@
-# Helper: build minimal synthetic data for run_conditional_eqtl() tests.
-# Returns a list with bigsnp, bigfeatures, features_coord, and design_base.
-make_eqtl_test_data <- function(n_samples = 20, n_snps = 5, seed = 42) {
+# Helper: build minimal synthetic data for run_conditional_qtl() tests.
+# Returns a list with bigsnp, bigpheno, pheno_coord, and design_base.
+make_qtl_test_data <- function(n_samples = 20, n_snps = 5, seed = 42) {
   set.seed(seed)
 
   sample_ids <- paste0("s", seq_len(n_samples))
@@ -24,15 +24,15 @@ make_eqtl_test_data <- function(n_samples = 20, n_snps = 5, seed = 42) {
     )
   )
 
-  # Expression matrix wrapped in bigFeatures (samples x 1 gene)
+  # Expression matrix wrapped in bigPheno (samples x 1 phenotype)
   expr_mat <- matrix(rnorm(n_samples), nrow = n_samples, ncol = 1)
   rownames(expr_mat) <- sample_ids
-  colnames(expr_mat) <- "geneA"
-  bigfeatures <- bigFeatures(expr_mat)
+  colnames(expr_mat) <- "phenoA"
+  bigpheno <- bigPheno(expr_mat)
 
-  # Gene coordinates (SNPs fall within cis window of 1 Mb)
-  features_coord <- data.frame(
-    feature_name = "geneA",
+  # Phenotype coordinates (SNPs fall within cis window of 1 Mb)
+  pheno_coord <- data.frame(
+    pheno_name   = "phenoA",
     chromosome   = "1",
     start        = 1000000L,
     end          = 1000100L,
@@ -47,11 +47,11 @@ make_eqtl_test_data <- function(n_samples = 20, n_snps = 5, seed = 42) {
   )
 
   list(
-    bigsnp        = bigsnp,
-    bigfeatures   = bigfeatures,
-    features_coord = features_coord,
-    design_base   = design_base,
-    sample_ids    = sample_ids
+    bigsnp      = bigsnp,
+    bigpheno    = bigpheno,
+    pheno_coord = pheno_coord,
+    design_base = design_base,
+    sample_ids  = sample_ids
   )
 }
 
@@ -59,18 +59,18 @@ make_eqtl_test_data <- function(n_samples = 20, n_snps = 5, seed = 42) {
 # Happy path
 # =========================================================================
 
-test_that("run_conditional_eqtl runs without error with minimal valid inputs", {
-  d <- make_eqtl_test_data()
-  out_dir <- tempfile("eqtl_test_")
+test_that("run_conditional_qtl runs without error with minimal valid inputs", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
   on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
 
   expect_no_error(
-    run_conditional_eqtl(
-      bigfeatures    = d$bigfeatures,
-      bigsnp         = d$bigsnp,
-      features_coord = d$features_coord,
-      design_base    = d$design_base,
-      output_dir     = out_dir
+    run_conditional_qtl(
+      bigpheno    = d$bigpheno,
+      bigsnp      = d$bigsnp,
+      pheno_coord = d$pheno_coord,
+      design_base = d$design_base,
+      output_dir  = out_dir
     )
   )
 })
@@ -79,17 +79,17 @@ test_that("run_conditional_eqtl runs without error with minimal valid inputs", {
 # Return structure
 # =========================================================================
 
-test_that("run_conditional_eqtl returns a list with expected named elements", {
-  d <- make_eqtl_test_data()
-  out_dir <- tempfile("eqtl_test_")
+test_that("run_conditional_qtl returns a list with expected named elements", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
   on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
 
-  result <- run_conditional_eqtl(
-    bigfeatures    = d$bigfeatures,
-    bigsnp         = d$bigsnp,
-    features_coord = d$features_coord,
-    design_base    = d$design_base,
-    output_dir     = out_dir
+  result <- run_conditional_qtl(
+    bigpheno    = d$bigpheno,
+    bigsnp      = d$bigsnp,
+    pheno_coord = d$pheno_coord,
+    design_base = d$design_base,
+    output_dir  = out_dir
   )
 
   expect_type(result, "list")
@@ -104,15 +104,15 @@ test_that("run_conditional_eqtl returns a list with expected named elements", {
 # Conditional disabling
 # =========================================================================
 
-test_that("run_conditional_eqtl with do_conditioning=FALSE returns valid structure", {
-  d <- make_eqtl_test_data()
-  out_dir <- tempfile("eqtl_test_")
+test_that("run_conditional_qtl with do_conditioning=FALSE returns valid structure", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
   on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
 
-  result <- run_conditional_eqtl(
-    bigfeatures     = d$bigfeatures,
+  result <- run_conditional_qtl(
+    bigpheno        = d$bigpheno,
     bigsnp          = d$bigsnp,
-    features_coord  = d$features_coord,
+    pheno_coord     = d$pheno_coord,
     design_base     = d$design_base,
     do_conditioning = FALSE,
     output_dir      = out_dir
@@ -122,18 +122,18 @@ test_that("run_conditional_eqtl with do_conditioning=FALSE returns valid structu
   expect_true(inherits(result$stepwise, "Dataset"))
 })
 
-test_that("run_conditional_eqtl with do_allbutone=FALSE returns NULL allbutone", {
-  d <- make_eqtl_test_data()
-  out_dir <- tempfile("eqtl_test_")
+test_that("run_conditional_qtl with do_allbutone=FALSE returns NULL allbutone", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
   on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
 
-  result <- run_conditional_eqtl(
-    bigfeatures    = d$bigfeatures,
-    bigsnp         = d$bigsnp,
-    features_coord = d$features_coord,
-    design_base    = d$design_base,
-    do_allbutone   = FALSE,
-    output_dir     = out_dir
+  result <- run_conditional_qtl(
+    bigpheno     = d$bigpheno,
+    bigsnp       = d$bigsnp,
+    pheno_coord  = d$pheno_coord,
+    design_base  = d$design_base,
+    do_allbutone = FALSE,
+    output_dir   = out_dir
   )
 
   expect_null(result$allbutone)
@@ -143,17 +143,17 @@ test_that("run_conditional_eqtl with do_allbutone=FALSE returns NULL allbutone",
 # Output directories
 # =========================================================================
 
-test_that("run_conditional_eqtl creates stepwise and allbutone output directories", {
-  d <- make_eqtl_test_data()
-  out_dir <- tempfile("eqtl_test_")
+test_that("run_conditional_qtl creates stepwise and allbutone output directories", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
   on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
 
-  result <- run_conditional_eqtl(
-    bigfeatures    = d$bigfeatures,
-    bigsnp         = d$bigsnp,
-    features_coord = d$features_coord,
-    design_base    = d$design_base,
-    output_dir     = out_dir
+  result <- run_conditional_qtl(
+    bigpheno    = d$bigpheno,
+    bigsnp      = d$bigsnp,
+    pheno_coord = d$pheno_coord,
+    design_base = d$design_base,
+    output_dir  = out_dir
   )
 
   expect_true(dir.exists(result$stepwise_dir))
@@ -164,78 +164,79 @@ test_that("run_conditional_eqtl creates stepwise and allbutone output directorie
 # Error cases
 # =========================================================================
 
-test_that("run_conditional_eqtl errors when design_base has default integer row names", {
-  d <- make_eqtl_test_data()
-  out_dir <- tempfile("eqtl_test_")
+test_that("run_conditional_qtl errors when design_base has default integer row names", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
   on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
 
   rownames(d$design_base) <- NULL  # resets to "1", "2", ...
 
   expect_error(
-    run_conditional_eqtl(
-      bigfeatures    = d$bigfeatures,
-      bigsnp         = d$bigsnp,
-      features_coord = d$features_coord,
-      design_base    = d$design_base,
-      output_dir     = out_dir
+    run_conditional_qtl(
+      bigpheno    = d$bigpheno,
+      bigsnp      = d$bigsnp,
+      pheno_coord = d$pheno_coord,
+      design_base = d$design_base,
+      output_dir  = out_dir
     ),
     "meaningful row names"
   )
 })
 
-test_that("run_conditional_eqtl errors when design_base sample IDs missing from bigsnp", {
-  d <- make_eqtl_test_data()
-  out_dir <- tempfile("eqtl_test_")
+test_that("run_conditional_qtl errors when design_base sample IDs missing from bigsnp", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
   on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
 
   rownames(d$design_base) <- paste0("x", seq_len(nrow(d$design_base)))
 
   expect_error(
-    run_conditional_eqtl(
-      bigfeatures    = d$bigfeatures,
-      bigsnp         = d$bigsnp,
-      features_coord = d$features_coord,
-      design_base    = d$design_base,
-      output_dir     = out_dir
+    run_conditional_qtl(
+      bigpheno    = d$bigpheno,
+      bigsnp      = d$bigsnp,
+      pheno_coord = d$pheno_coord,
+      design_base = d$design_base,
+      output_dir  = out_dir
     ),
     "not found in bigsnp"
   )
 })
 
-test_that("run_conditional_eqtl errors when design_base sample IDs missing from bigfeatures", {
-  d <- make_eqtl_test_data()
-  out_dir <- tempfile("eqtl_test_")
+test_that("run_conditional_qtl errors when design_base sample IDs missing from bigpheno", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
   on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
 
-  d$bigfeatures$rowData$sample_name <- paste0("y", seq_len(nrow(d$design_base)))
+  d$bigpheno$rowData$sample_name <- paste0("y", seq_len(nrow(d$design_base)))
 
   expect_error(
-    run_conditional_eqtl(
-      bigfeatures    = d$bigfeatures,
-      bigsnp         = d$bigsnp,
-      features_coord = d$features_coord,
-      design_base    = d$design_base,
-      output_dir     = out_dir
+    run_conditional_qtl(
+      bigpheno    = d$bigpheno,
+      bigsnp      = d$bigsnp,
+      pheno_coord = d$pheno_coord,
+      design_base = d$design_base,
+      output_dir  = out_dir
     ),
-    "not found in bigfeatures"
+    "not found in bigpheno"
   )
 })
 
-test_that("run_conditional_eqtl errors when features_coord is missing required columns", {
-  d <- make_eqtl_test_data()
-  out_dir <- tempfile("eqtl_test_")
+test_that("run_conditional_qtl errors when pheno_coord is missing required columns", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
   on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
 
-  d$features_coord$chromosome <- NULL  # drop required column
+  d$pheno_coord$chromosome <- NULL  # drop required column
 
   expect_error(
-    run_conditional_eqtl(
-      bigfeatures    = d$bigfeatures,
-      bigsnp         = d$bigsnp,
-      features_coord = d$features_coord,
-      design_base    = d$design_base,
-      output_dir     = out_dir
+    run_conditional_qtl(
+      bigpheno    = d$bigpheno,
+      bigsnp      = d$bigsnp,
+      pheno_coord = d$pheno_coord,
+      design_base = d$design_base,
+      output_dir  = out_dir
     ),
-    "features_coord must contain columns"
+    "pheno_coord must contain columns"
   )
 })
+
