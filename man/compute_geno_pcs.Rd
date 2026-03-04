@@ -4,7 +4,13 @@
 \alias{compute_geno_pcs}
 \title{Compute genotype principal components}
 \usage{
-compute_geno_pcs(bigsnp, keep_ids = NULL, n_pcs = 5, exclude_snp_names = NULL, ncores = 1)
+compute_geno_pcs(
+  bigsnp,
+  keep_ids = NULL,
+  n_pcs = 5,
+  exclude_snp_names = NULL,
+  ncores = 1
+)
 }
 \arguments{
 \item{bigsnp}{bigSNP object with \code{$genotypes} (FBM), \code{$fam}

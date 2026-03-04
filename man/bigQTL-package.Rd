@@ -2,11 +2,10 @@
 % Please edit documentation in R/bigQTL-package.R
 \docType{package}
 \name{bigQTL-package}
-\alias{bigQTL}
 \alias{bigQTL-package}
 \title{bigQTL: Scalable Conditional QTL Analysis with File-Backed Matrices}
 \description{
-Performs conditional cis-QTL analysis (stepwise conditioning and all-but-one) using file-backed genotype and feature matrices from the bigstatsr/bigsnpr ecosystem. Includes eigenMT multiple testing correction and data preparation utilities (genotype PCA, feature PCA, RINT transformation).
+Performs conditional cis-QTL analysis (stepwise conditioning and all-but-one) using file-backed genotype and phenotype matrices from the bigstatsr/bigsnpr ecosystem. Includes eigenMT multiple testing correction and data preparation utilities (genotype PCA, phenotype PCA, RINT transformation).
 }
 \author{
 \strong{Maintainer}: Pierre-Paul Axisa \email{pp.axisa@gmail.com}
