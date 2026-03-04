@@ -14,7 +14,10 @@ run_stepwise(
   ind.row.snp,
   do_conditioning,
   pval_threshold,
-  ncores
+  max_steps = 5,
+  ncores,
+  pheno = NULL,
+  verbose = FALSE
 )
 }
 \arguments{
@@ -36,7 +39,13 @@ run_stepwise(
 
 \item{pval_threshold}{P-value threshold for stepwise conditioning}
 
+\item{max_steps}{Maximum number of conditioning steps (default 5)}
+
 \item{ncores}{Number of cores}
+
+\item{pheno}{Phenotype name (used in warning messages)}
+
+\item{verbose}{Logical; print progress messages (default FALSE)}
 }
 \value{
 List with elements: stepwise_tables, conditioning_snps
