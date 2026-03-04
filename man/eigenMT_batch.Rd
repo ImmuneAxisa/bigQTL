@@ -2,11 +2,11 @@
 % Please edit documentation in R/eigenMT.R
 \name{eigenMT_batch}
 \alias{eigenMT_batch}
-\title{Compute eigenMT M_eff for all genes in batch}
+\title{Compute eigenMT M_eff for all phenotypes in batch}
 \usage{
 eigenMT_batch(
   bigsnp,
-  features_coord,
+  pheno_coord,
   ind.row,
   cis_window = 1e+06,
   var_thresh = 0.99,
@@ -18,13 +18,13 @@ eigenMT_batch(
 \item{bigsnp}{bigSNP object with \code{$genotypes} (FBM), \code{$fam},
 and \code{$map}}
 
-\item{features_coord}{Data frame with columns: feature_name, chromosome,
+\item{pheno_coord}{Data frame with columns: pheno_name, chromosome,
 start, end}
 
 \item{ind.row}{Integer vector of row indices (individuals) into the
 genotype FBM}
 
-\item{cis_window}{Padding around gene coordinates for cis-SNP lookup
+\item{cis_window}{Padding around phenotype coordinates for cis-SNP lookup
 (default 1e6)}
 
 \item{var_thresh}{Variance fraction threshold for eigenvalue counting
@@ -35,11 +35,11 @@ genotype FBM}
 \item{ncores}{Number of cores for parallel computation (default 1)}
 }
 \value{
-Data frame with columns: feature_name, n_cis_snps, m_eff
+Data frame with columns: pheno_name, n_cis_snps, m_eff
 }
 \description{
-Computes eigenMT M_eff for each gene in \code{features_coord}. Uses
-\code{get_cis_snps()} to identify cis-SNPs per gene, then calls
-\code{eigenMT_gene()} for each. Parallelises over genes via
+Computes eigenMT M_eff for each phenotype in \code{pheno_coord}. Uses
+\code{get_cis_snps()} to identify cis-SNPs per phenotype, then calls
+\code{eigenMT_gene()} for each. Parallelises over phenotypes via
 \code{parallel::mclapply}.
 }

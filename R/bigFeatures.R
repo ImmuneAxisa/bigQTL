@@ -1,19 +1,19 @@
 # =========================================================================
-# CREATE bigFeatures S3 CLASS
+# CREATE bigPheno S3 CLASS
 # =========================================================================
 
-#' Create bigFeatures object
+#' Create bigPheno object
 #'
-#' A list-based S3 class for storing feature data (genes/transcripts) in FBM format
-#' with samples on rows and features on columns.
+#' A list-based S3 class for storing phenotype data (e.g. gene expression)
+#' in FBM format with samples on rows and phenotypes on columns.
 #'
-#' @param matrix Numeric matrix with samples on rows and features on columns
+#' @param matrix Numeric matrix with samples on rows and phenotypes on columns
 #' @param rowData data.frame with sample metadata. If NULL, uses rownames to create sample_name column
-#' @param colData data.frame with feature metadata. If NULL, uses colnames to create feature_name column
+#' @param colData data.frame with phenotype metadata. If NULL, uses colnames to create pheno_name column
 #'
-#' @return A bigFeatures object (list with elements: features, rowData, colData)
+#' @return A bigPheno object (list with elements: pheno, rowData, colData)
 #' @export
-bigFeatures <- function(matrix, rowData = NULL, colData = NULL) {
+bigPheno <- function(matrix, rowData = NULL, colData = NULL) {
   
   # Validate input matrix
   if (!is.matrix(matrix)) {
@@ -21,7 +21,7 @@ bigFeatures <- function(matrix, rowData = NULL, colData = NULL) {
   }
   
   n_samples <- nrow(matrix)
-  n_features <- ncol(matrix)
+  n_phenos <- ncol(matrix)
   
   # Convert matrix to FBM
   fbm <- bigstatsr::as_FBM(matrix)
@@ -44,34 +44,34 @@ bigFeatures <- function(matrix, rowData = NULL, colData = NULL) {
     }
   }
   
-  # Create colData (feature metadata) if NULL
+  # Create colData (phenotype metadata) if NULL
   if (is.null(colData)) {
-    feature_names <- colnames(matrix)
-    if (is.null(feature_names)) {
-      feature_names <- paste0("feature_", 1:n_features)
+    pheno_names <- colnames(matrix)
+    if (is.null(pheno_names)) {
+      pheno_names <- paste0("pheno_", 1:n_phenos)
     }
-    colData <- data.frame(feature_name = feature_names,
+    colData <- data.frame(pheno_name = pheno_names,
                           stringsAsFactors = FALSE)
   } else {
     if (!inherits(colData, "data.frame")) {
       stop("colData must be a data.frame")
     }
-    if (nrow(colData) != n_features) {
+    if (nrow(colData) != n_phenos) {
       stop(sprintf("colData has %d rows but matrix has %d columns",
-                   nrow(colData), n_features))
+                   nrow(colData), n_phenos))
     }
-    if (!("feature_name" %in% colnames(colData))) {
-      stop("colData must contain a 'feature_name' column")
+    if (!("pheno_name" %in% colnames(colData))) {
+      stop("colData must contain a 'pheno_name' column")
     }
   }
   
   # Create object
   obj <- list(
-    features = fbm,
+    pheno = fbm,
     rowData = rowData,
     colData = colData
   )
   
-  class(obj) <- "bigFeatures"
+  class(obj) <- "bigPheno"
   return(obj)
 }

@@ -179,40 +179,40 @@ eigenMT_gene <- function(bigsnp, snp_indices, ind.row,
 # BATCH FUNCTION: Compute M_eff for all genes
 # =========================================================================
 
-#' Compute eigenMT M_eff for all genes in batch
+#' Compute eigenMT M_eff for all phenotypes in batch
 #'
-#' Computes eigenMT M_eff for each gene in \code{features_coord}. Uses
-#' \code{get_cis_snps()} to identify cis-SNPs per gene, then calls
-#' \code{eigenMT_gene()} for each. Parallelises over genes via
+#' Computes eigenMT M_eff for each phenotype in \code{pheno_coord}. Uses
+#' \code{get_cis_snps()} to identify cis-SNPs per phenotype, then calls
+#' \code{eigenMT_gene()} for each. Parallelises over phenotypes via
 #' \code{parallel::mclapply}.
 #'
 #' @param bigsnp bigSNP object with \code{$genotypes} (FBM), \code{$fam},
 #'   and \code{$map}
-#' @param features_coord Data frame with columns: feature_name, chromosome,
+#' @param pheno_coord Data frame with columns: pheno_name, chromosome,
 #'   start, end
 #' @param ind.row Integer vector of row indices (individuals) into the
 #'   genotype FBM
-#' @param cis_window Padding around gene coordinates for cis-SNP lookup
+#' @param cis_window Padding around phenotype coordinates for cis-SNP lookup
 #'   (default 1e6)
 #' @param var_thresh Variance fraction threshold for eigenvalue counting
 #'   (default 0.99)
 #' @param eigenmt_window SNP window size for LD block computation (default 200)
 #' @param ncores Number of cores for parallel computation (default 1)
 #'
-#' @return Data frame with columns: feature_name, n_cis_snps, m_eff
+#' @return Data frame with columns: pheno_name, n_cis_snps, m_eff
 #' @export
-eigenMT_batch <- function(bigsnp, features_coord, ind.row,
+eigenMT_batch <- function(bigsnp, pheno_coord, ind.row,
                           cis_window = 1e6, var_thresh = 0.99,
                           eigenmt_window = 200, ncores = 1) {
 
-  results <- parallel::mclapply(seq_len(nrow(features_coord)), function(i) {
-    gene_row <- features_coord[i, ]
+  results <- parallel::mclapply(seq_len(nrow(pheno_coord)), function(i) {
+    pheno_row <- pheno_coord[i, ]
 
     cis_result <- get_cis_snps(
       bigsnp     = bigsnp,
-      gene_chr   = gene_row$chromosome,
-      gene_start = gene_row$start,
-      gene_end   = gene_row$end,
+      gene_chr   = pheno_row$chromosome,
+      gene_start = pheno_row$start,
+      gene_end   = pheno_row$end,
       cis_window = cis_window
     )
 
@@ -228,9 +228,9 @@ eigenMT_batch <- function(bigsnp, features_coord, ind.row,
     )
 
     data.frame(
-      feature_name = gene_row$feature_name,
-      n_cis_snps   = n_cis,
-      m_eff        = m_eff,
+      pheno_name = pheno_row$pheno_name,
+      n_cis_snps = n_cis,
+      m_eff      = m_eff,
       stringsAsFactors = FALSE
     )
   }, mc.cores = ncores)

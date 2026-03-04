@@ -2,14 +2,14 @@
 % Please edit documentation in R/bigQTL.R
 \name{run_stepwise}
 \alias{run_stepwise}
-\title{Run stepwise conditioning for a gene}
+\title{Run stepwise conditioning for a phenotype}
 \usage{
 run_stepwise(
   results_step0,
   bigsnp,
   y,
   snp_indices,
-  cis_snps_gene,
+  cis_snps_pheno,
   design_base,
   ind.row.snp,
   do_conditioning,
@@ -26,7 +26,7 @@ run_stepwise(
 
 \item{snp_indices}{Integer vector of cis-SNP column indices}
 
-\item{cis_snps_gene}{Character vector of cis-SNP names}
+\item{cis_snps_pheno}{Character vector of cis-SNP names}
 
 \item{design_base}{Data frame of covariates}
 
@@ -42,6 +42,6 @@ run_stepwise(
 List with elements: stepwise_tables, conditioning_snps
 }
 \description{
-Run stepwise conditioning for a gene
+Run stepwise conditioning for a phenotype
 }
 \keyword{internal}

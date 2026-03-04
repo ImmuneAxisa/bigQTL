@@ -91,24 +91,50 @@ get_cis_snps <- function(bigsnp, gene_chr, gene_start, gene_end, cis_window = 1e
 
 
 # =========================================================================
-# HELPER FUNCTION: Get feature indices from bigFeatures
+# HELPER FUNCTION: Get pheno indices from bigPheno
 # =========================================================================
 
-#' Match feature names to indices in a bigFeatures object
+#' Match phenotype names to indices in a bigPheno object
 #'
-#' @param bigfeatures bigFeatures object with \code{$colData} containing
-#'   a \code{feature_name} column
-#' @param feature_names Character vector of feature names to look up
+#' @param bigpheno bigPheno object with \code{$colData} containing
+#'   a \code{pheno_name} column
+#' @param pheno_names Character vector of phenotype names to look up
 #'
-#' @return Integer vector of column indices into the feature FBM
+#' @return Integer vector of column indices into the phenotype FBM
 #' @export
-get_feature_indices <- function(bigfeatures, feature_names) {
+get_pheno_indices <- function(bigpheno, pheno_names) {
   
-  indices <- match(feature_names, bigfeatures$colData$feature_name)
+  indices <- match(pheno_names, bigpheno$colData$pheno_name)
   
   if (any(is.na(indices))) {
-    missing <- feature_names[is.na(indices)]
-    stop(sprintf("Could not find %d features: %s",
+    missing <- pheno_names[is.na(indices)]
+    stop(sprintf("Could not find %d phenotypes: %s",
+                 length(missing), paste(head(missing, 3), collapse = ", ")))
+  }
+  
+  return(indices)
+}
+
+
+# =========================================================================
+# HELPER FUNCTION: Get SNP indices from bigSNP
+# =========================================================================
+
+#' Match SNP names to indices in a bigSNP object
+#'
+#' @param bigsnp bigSNP object with \code{$map} containing
+#'   a \code{marker.ID} column
+#' @param snp_names Character vector of SNP names to look up
+#'
+#' @return Integer vector of column indices into the genotype FBM
+#' @export
+get_snp_indices <- function(bigsnp, snp_names) {
+  
+  indices <- match(snp_names, bigsnp$map$marker.ID)
+  
+  if (any(is.na(indices))) {
+    missing <- snp_names[is.na(indices)]
+    stop(sprintf("Could not find %d SNPs in bigSNP map: %s",
                  length(missing), paste(head(missing, 3), collapse = ", ")))
   }
   
