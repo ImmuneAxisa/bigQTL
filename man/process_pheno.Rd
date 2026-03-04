@@ -15,11 +15,13 @@ process_pheno(
   cis_window,
   do_conditioning,
   pval_threshold,
+  max_steps = 5,
   do_allbutone,
   do_rint,
   ncores,
   stepwise_dir,
-  allbutone_dir
+  allbutone_dir,
+  verbose = FALSE
 )
 }
 \arguments{
@@ -43,6 +45,8 @@ process_pheno(
 
 \item{pval_threshold}{P-value threshold for stepwise conditioning}
 
+\item{max_steps}{Maximum number of stepwise conditioning steps (default 5)}
+
 \item{do_allbutone}{Logical; perform all-but-one conditioning}
 
 \item{do_rint}{Logical; apply RINT to phenotype}
@@ -52,6 +56,8 @@ process_pheno(
 \item{stepwise_dir}{Output directory for stepwise results}
 
 \item{allbutone_dir}{Output directory for all-but-one results}
+
+\item{verbose}{Logical; print per-phenotype progress messages (default FALSE)}
 }
 \value{
 Invisibly NULL (results written to disk)

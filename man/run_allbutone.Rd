@@ -14,7 +14,8 @@ run_allbutone(
   design_base,
   ind.row.snp,
   do_allbutone,
-  ncores
+  ncores,
+  verbose = FALSE
 )
 }
 \arguments{
@@ -37,6 +38,8 @@ run_allbutone(
 \item{do_allbutone}{Logical; perform all-but-one conditioning}
 
 \item{ncores}{Number of cores}
+
+\item{verbose}{Logical; print progress messages (default FALSE)}
 }
 \value{
 List of data frames with all-but-one results

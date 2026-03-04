@@ -12,11 +12,13 @@ run_conditional_qtl(
   cis_window = 1e+06,
   do_conditioning = TRUE,
   pval_threshold = 0.001,
+  max_steps = 5,
   do_allbutone = TRUE,
   do_rint = TRUE,
   ncores = 1,
   ncores_phenos = 1,
-  output_dir = "./qtl_results"
+  output_dir = "./qtl_results",
+  verbose = FALSE
 )
 }
 \arguments{
@@ -34,6 +36,8 @@ run_conditional_qtl(
 
 \item{pval_threshold}{P-value threshold for stepwise conditioning (default 1e-3)}
 
+\item{max_steps}{Maximum number of stepwise conditioning steps (default 5)}
+
 \item{do_allbutone}{Logical; perform all-but-one conditioning (default TRUE)}
 
 \item{do_rint}{Logical; apply RINT transformation to each phenotype (default TRUE)}
@@ -43,6 +47,9 @@ run_conditional_qtl(
 \item{ncores_phenos}{Cores for across-phenotype parallelisation (default 1)}
 
 \item{output_dir}{Directory for Parquet output (default "./qtl_results")}
+
+\item{verbose}{Logical; print per-phenotype progress messages (default FALSE).
+Abnormal events (e.g. sd=0, no cis-SNPs) are always emitted as warnings.}
 }
 \value{
 List with elements: stepwise (Arrow dataset), allbutone (Arrow dataset or NULL),
