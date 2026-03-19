@@ -295,7 +295,7 @@ process_pheno <- function(pheno, bigpheno, bigsnp, pheno_coord,
                           design_base, ind.row.snp, ind.row.pheno,
                           cis_window, do_conditioning, pval_threshold,
                           max_steps = 5, do_allbutone, do_rint,
-                          min_snps = 20, ncores,
+                          min_snps = 20, ncores, # min cis-SNPs to run analysis
                           stepwise_dir, allbutone_dir, verbose = FALSE) {
 
   if (verbose) message(sprintf("Processing %s...", pheno))
@@ -375,6 +375,7 @@ process_pheno <- function(pheno, bigpheno, bigsnp, pheno_coord,
   }
 
   # ==== All-but-one conditioning ====
+  # Requires at least 2 conditioning SNPs (need >1 to leave one out)
 
   if (do_allbutone && length(conditioning_snps) > 1) {
     allbutone_all <- run_allbutone(
