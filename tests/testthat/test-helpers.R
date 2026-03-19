@@ -48,8 +48,8 @@ test_that("get_cis_snps returns empty lists when no SNPs in window", {
   # Minimal bigsnp-like list
   bigsnp <- list(map = snp_map)
 
-  result <- get_cis_snps(bigsnp, gene_chr = "3",
-                         gene_start = 1000, gene_end = 2000,
+  result <- get_cis_snps(bigsnp, pheno_chr = "3",
+                         pheno_start = 1000, pheno_end = 2000,
                          cis_window = 500)
   expect_length(result$indices, 0)
   expect_length(result$names, 0)
@@ -65,8 +65,8 @@ test_that("get_cis_snps finds SNPs within window on correct chromosome", {
   bigsnp <- list(map = snp_map)
 
   # Gene on chr1, 1000-2000, window=500 -> [500, 2500]
-  result <- get_cis_snps(bigsnp, gene_chr = "1",
-                         gene_start = 1000, gene_end = 2000,
+  result <- get_cis_snps(bigsnp, pheno_chr = "1",
+                         pheno_start = 1000, pheno_end = 2000,
                          cis_window = 500)
   expect_equal(result$indices, c(1L, 2L))
   expect_equal(result$names, c("rs1", "rs2"))
@@ -82,8 +82,8 @@ test_that("get_cis_snps window boundary is inclusive", {
   bigsnp <- list(map = snp_map)
 
   # Gene 1000-2000, window=500 -> lower bound = 500 exactly
-  result <- get_cis_snps(bigsnp, gene_chr = "1",
-                         gene_start = 1000, gene_end = 2000,
+  result <- get_cis_snps(bigsnp, pheno_chr = "1",
+                         pheno_start = 1000, pheno_end = 2000,
                          cis_window = 500)
   expect_equal(result$names, "rs_exact")
 })

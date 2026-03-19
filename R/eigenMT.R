@@ -209,11 +209,11 @@ eigenMT_batch <- function(bigsnp, pheno_coord, ind.row,
     pheno_row <- pheno_coord[i, ]
 
     cis_result <- get_cis_snps(
-      bigsnp     = bigsnp,
-      gene_chr   = pheno_row$chromosome,
-      gene_start = pheno_row$start,
-      gene_end   = pheno_row$end,
-      cis_window = cis_window
+      bigsnp      = bigsnp,
+      pheno_chr   = pheno_row$chromosome,
+      pheno_start = pheno_row$start,
+      pheno_end   = pheno_row$end,
+      cis_window  = cis_window
     )
 
     snp_indices <- cis_result$indices
