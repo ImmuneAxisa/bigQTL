@@ -12,7 +12,6 @@ run_stepwise(
   cis_snps_pheno,
   design_base,
   ind.row.snp,
-  do_conditioning,
   pval_threshold,
   max_steps = 5,
   ncores,
@@ -34,8 +33,6 @@ run_stepwise(
 \item{design_base}{Data frame of covariates}
 
 \item{ind.row.snp}{Integer vector of row indices for samples in genotype FBM}
-
-\item{do_conditioning}{Logical; perform stepwise conditioning}
 
 \item{pval_threshold}{P-value threshold for stepwise conditioning}
 

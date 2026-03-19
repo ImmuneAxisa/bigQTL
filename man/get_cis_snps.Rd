@@ -2,21 +2,21 @@
 % Please edit documentation in R/helpers.R
 \name{get_cis_snps}
 \alias{get_cis_snps}
-\title{Get cis SNPs for a gene}
+\title{Get cis SNPs for a phenotype}
 \usage{
-get_cis_snps(bigsnp, gene_chr, gene_start, gene_end, cis_window = 1e+06)
+get_cis_snps(bigsnp, pheno_chr, pheno_start, pheno_end, cis_window = 1e+06)
 }
 \arguments{
 \item{bigsnp}{bigSNP object with \code{$map} containing \code{chromosome}
 and \code{physical.pos}}
 
-\item{gene_chr}{Chromosome of the gene (character or integer)}
+\item{pheno_chr}{Chromosome of the phenotype (character or integer)}
 
-\item{gene_start}{Start position of gene (numeric)}
+\item{pheno_start}{Start position of phenotype (numeric)}
 
-\item{gene_end}{End position of gene (numeric)}
+\item{pheno_end}{End position of phenotype (numeric)}
 
-\item{cis_window}{Padding around gene coordinates in base pairs (default 1e6)}
+\item{cis_window}{Padding around phenotype coordinates in base pairs (default 1e6)}
 }
 \value{
 Named list with elements: \code{indices} (integer vector of SNP
@@ -24,5 +24,5 @@ column indices) and \code{names} (character vector of SNP names)
 }
 \description{
 Returns the column indices and names of SNPs that fall within the cis
-window of a given gene.
+window of a given phenotype.
 }

@@ -18,6 +18,7 @@ process_pheno(
   max_steps = 5,
   do_allbutone,
   do_rint,
+  min_snps = 20,
   ncores,
   stepwise_dir,
   allbutone_dir,
@@ -50,6 +51,8 @@ process_pheno(
 \item{do_allbutone}{Logical; perform all-but-one conditioning}
 
 \item{do_rint}{Logical; apply RINT to phenotype}
+
+\item{min_snps}{Minimum number of cis-SNPs required (default 20)}
 
 \item{ncores}{Number of cores}
 
