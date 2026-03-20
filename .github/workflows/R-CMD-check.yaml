@@ -3,6 +3,11 @@
 # Runs on every push and pull request.  Uses the standard r-lib/actions
 # setup to install system dependencies and the package's R dependencies,
 # then executes R CMD check.
+#
+# On pull requests from the same repository, a `document` job runs first to
+# regenerate man/ and NAMESPACE via devtools::document() and commit any
+# changes back to the PR branch.  The R-CMD-check matrix jobs depend on
+# `document` so they never start before documentation is up-to-date.
 
 on:
   push:
@@ -13,7 +18,48 @@ on:
 name: R-CMD-check
 
 jobs:
+  document:
+    # Only auto-document on same-repo PRs; fork PRs cannot push back.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Check out the PR head branch so we can push back to it.
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::devtools
+          needs: check
+
+      - name: Run devtools::document()
+        shell: Rscript {0}
+        run: devtools::document()
+
+      - name: Commit and push documentation changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add man/ NAMESPACE
+          git diff --cached --quiet || git commit -m "chore: auto-update documentation [skip ci]"
+          git push
+
   R-CMD-check:
+    # Wait for `document` when it runs (same-repo PRs).
+    # When `document` is skipped (push to main, or fork PRs) proceed immediately.
+    needs: [document]
+    if: always() && (needs.document.result == 'success' || needs.document.result == 'skipped')
+
     runs-on: ${{ matrix.config.os }}
 
     name: ${{ matrix.config.os }} (R ${{ matrix.config.r }})
@@ -33,7 +79,16 @@ jobs:
       R_KEEP_PKG_SOURCE: yes
 
     steps:
+      # For same-repo PRs: checkout the latest tip of the branch so we pick
+      # up any documentation commit pushed by the `document` job above.
+      # For fork PRs and pushes: fall back to the default (github.ref / sha).
       - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        with:
+          ref: ${{ github.head_ref }}
+
+      - uses: actions/checkout@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
 
       - uses: r-lib/actions/setup-pandoc@v2
 

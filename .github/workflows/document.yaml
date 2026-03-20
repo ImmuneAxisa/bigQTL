@@ -1,24 +1,25 @@
 name: Auto-document
 
+# This workflow can be triggered manually from the GitHub Actions UI to
+# regenerate man/ and NAMESPACE on any branch.
+#
+# Automatic documentation on pull requests is handled by the `document` job
+# inside R-CMD-check.yaml, which runs as a prerequisite to R CMD check so
+# that both steps are properly ordered within the same workflow run.
 on:
-  pull_request:
-    branches: [main, master]
+  workflow_dispatch:
 
 jobs:
   document:
     runs-on: ubuntu-latest
-    # Only run on PRs from the same repository, not from forks
-    if: github.event.pull_request.head.repo.full_name == github.repository
 
-    # Needs write access to push the commit back to the PR branch
+    # Needs write access to push the commit back to the branch
     permissions:
       contents: write
 
     steps:
       - uses: actions/checkout@v4
         with:
-          # Check out the PR head branch so we can push back to it
-          ref: ${{ github.head_ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: r-lib/actions/setup-r@v2
