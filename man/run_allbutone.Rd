@@ -13,7 +13,6 @@ run_allbutone(
   cis_snps_pheno,
   design_base,
   ind.row.snp,
-  do_allbutone,
   ncores,
   verbose = FALSE
 )
@@ -34,8 +33,6 @@ run_allbutone(
 \item{design_base}{Data frame of covariates}
 
 \item{ind.row.snp}{Integer vector of row indices for samples in genotype FBM}
-
-\item{do_allbutone}{Logical; perform all-but-one conditioning}
 
 \item{ncores}{Number of cores}
 

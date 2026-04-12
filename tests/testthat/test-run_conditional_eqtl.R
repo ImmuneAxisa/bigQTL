@@ -70,6 +70,7 @@ test_that("run_conditional_qtl runs without error with minimal valid inputs", {
       bigsnp      = d$bigsnp,
       pheno_coord = d$pheno_coord,
       design_base = d$design_base,
+      min_snps    = 1,
       output_dir  = out_dir
     )
   )
@@ -89,6 +90,7 @@ test_that("run_conditional_qtl returns a list with expected named elements", {
     bigsnp      = d$bigsnp,
     pheno_coord = d$pheno_coord,
     design_base = d$design_base,
+    min_snps    = 1,
     output_dir  = out_dir
   )
 
@@ -115,6 +117,8 @@ test_that("run_conditional_qtl with do_conditioning=FALSE returns valid structur
     pheno_coord     = d$pheno_coord,
     design_base     = d$design_base,
     do_conditioning = FALSE,
+    do_allbutone    = FALSE,
+    min_snps        = 1,
     output_dir      = out_dir
   )
 
@@ -133,6 +137,7 @@ test_that("run_conditional_qtl with do_allbutone=FALSE returns NULL allbutone", 
     pheno_coord  = d$pheno_coord,
     design_base  = d$design_base,
     do_allbutone = FALSE,
+    min_snps     = 1,
     output_dir   = out_dir
   )
 
@@ -153,6 +158,7 @@ test_that("run_conditional_qtl creates stepwise and allbutone output directories
     bigsnp      = d$bigsnp,
     pheno_coord = d$pheno_coord,
     design_base = d$design_base,
+    min_snps    = 1,
     output_dir  = out_dir
   )
 
@@ -273,6 +279,7 @@ test_that("process_pheno warns and exits early when phenotype has sd = 0", {
       max_steps      = 5,
       do_allbutone   = TRUE,
       do_rint        = FALSE,
+      min_snps       = 1,
       ncores         = 1,
       stepwise_dir   = file.path(out_dir, "stepwise"),
       allbutone_dir  = file.path(out_dir, "allbutone")
@@ -359,7 +366,6 @@ test_that("run_stepwise warns when max_steps is reached", {
       cis_snps_pheno = d$bigsnp$map$marker.ID,
       design_base    = d$design_base,
       ind.row.snp    = ind.row.snp,
-      do_conditioning = TRUE,
       pval_threshold = 1,    # threshold of 1 ensures every lead "passes"
       max_steps      = 1,
       ncores         = 1,
@@ -382,6 +388,7 @@ test_that("run_conditional_qtl accepts max_steps argument and passes it through"
       pheno_coord = d$pheno_coord,
       design_base = d$design_base,
       max_steps   = 3,
+      min_snps    = 1,
       output_dir  = out_dir
     )
   )
@@ -403,6 +410,7 @@ test_that("run_conditional_qtl with verbose=FALSE suppresses normal messages", {
       bigsnp      = d$bigsnp,
       pheno_coord = d$pheno_coord,
       design_base = d$design_base,
+      min_snps    = 1,
       output_dir  = out_dir,
       verbose     = FALSE
     ),
@@ -426,9 +434,117 @@ test_that("run_conditional_qtl with verbose=TRUE emits messages", {
       bigsnp      = d$bigsnp,
       pheno_coord = d$pheno_coord,
       design_base = d$design_base,
+      min_snps    = 1,
       output_dir  = out_dir,
       verbose     = TRUE
     )
   )
+})
+
+# =========================================================================
+# do_allbutone requires do_conditioning
+# =========================================================================
+
+test_that("run_conditional_qtl errors when do_allbutone=TRUE and do_conditioning=FALSE", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+
+  expect_error(
+    run_conditional_qtl(
+      bigpheno        = d$bigpheno,
+      bigsnp          = d$bigsnp,
+      pheno_coord     = d$pheno_coord,
+      design_base     = d$design_base,
+      do_conditioning = FALSE,
+      do_allbutone    = TRUE,
+      min_snps        = 1,
+      output_dir      = out_dir
+    ),
+    "do_allbutone = TRUE requires do_conditioning = TRUE"
+  )
+})
+
+# =========================================================================
+# min_snps threshold
+# =========================================================================
+
+test_that("process_pheno warns and skips when fewer cis SNPs than min_snps", {
+  d <- make_qtl_test_data()  # 5 SNPs by default
+
+  out_dir <- tempfile("qtl_test_")
+  dir.create(file.path(out_dir, "stepwise"),  recursive = TRUE)
+  dir.create(file.path(out_dir, "allbutone"), recursive = TRUE)
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+
+  ind.row.snp   <- match(d$sample_ids, d$bigsnp$fam$sample.ID)
+  ind.row.pheno <- match(d$sample_ids, d$bigpheno$rowData$sample_name)
+
+  expect_warning(
+    process_pheno(
+      pheno          = "phenoA",
+      bigpheno       = d$bigpheno,
+      bigsnp         = d$bigsnp,
+      pheno_coord    = d$pheno_coord,
+      design_base    = d$design_base,
+      ind.row.snp    = ind.row.snp,
+      ind.row.pheno  = ind.row.pheno,
+      cis_window     = 1e6,
+      do_conditioning = TRUE,
+      pval_threshold = 1e-3,
+      max_steps      = 5,
+      do_allbutone   = TRUE,
+      do_rint        = FALSE,
+      min_snps       = 100,
+      ncores         = 1,
+      stepwise_dir   = file.path(out_dir, "stepwise"),
+      allbutone_dir  = file.path(out_dir, "allbutone")
+    ),
+    "fewer than min_snps"
+  )
+})
+
+test_that("run_conditional_qtl respects min_snps and skips phenotypes with too few SNPs", {
+  d <- make_qtl_test_data()  # 5 SNPs by default
+  out_dir <- tempfile("qtl_test_")
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+
+  # min_snps=100 should cause the phenotype to be skipped
+  expect_warning(
+    run_conditional_qtl(
+      bigpheno    = d$bigpheno,
+      bigsnp      = d$bigsnp,
+      pheno_coord = d$pheno_coord,
+      design_base = d$design_base,
+      min_snps    = 100,
+      output_dir  = out_dir
+    ),
+    "fewer than min_snps"
+  )
+})
+
+# =========================================================================
+# marginalQTL convenience function
+# =========================================================================
+
+test_that("marginalQTL runs without error and returns expected structure", {
+  d <- make_qtl_test_data()
+  out_dir <- tempfile("qtl_test_")
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+
+  result <- marginalQTL(
+    bigpheno    = d$bigpheno,
+    bigsnp      = d$bigsnp,
+    pheno_coord = d$pheno_coord,
+    design_base = d$design_base,
+    min_snps    = 1,
+    output_dir  = out_dir
+  )
+
+  expect_type(result, "list")
+  expect_named(result, c("stepwise", "allbutone", "stepwise_dir", "allbutone_dir"))
+  expect_true(inherits(result$stepwise, "Dataset"))
+  # marginalQTL disables allbutone, so it should be NULL
+  expect_null(result$allbutone)
 })
 

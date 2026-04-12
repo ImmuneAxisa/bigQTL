@@ -48,34 +48,34 @@ add_snps_to_covariates <- function(bigsnp, snp_names, covar_df) {
 
 
 # =========================================================================
-# HELPER FUNCTION: Get cis SNPs for a gene on the fly
+# HELPER FUNCTION: Get cis SNPs for a phenotype on the fly
 # =========================================================================
 
-#' Get cis SNPs for a gene
+#' Get cis SNPs for a phenotype
 #'
 #' Returns the column indices and names of SNPs that fall within the cis
-#' window of a given gene.
+#' window of a given phenotype.
 #'
 #' @param bigsnp bigSNP object with \code{$map} containing \code{chromosome}
 #'   and \code{physical.pos}
-#' @param gene_chr Chromosome of the gene (character or integer)
-#' @param gene_start Start position of gene (numeric)
-#' @param gene_end End position of gene (numeric)
-#' @param cis_window Padding around gene coordinates in base pairs (default 1e6)
+#' @param pheno_chr Chromosome of the phenotype (character or integer)
+#' @param pheno_start Start position of phenotype (numeric)
+#' @param pheno_end End position of phenotype (numeric)
+#' @param cis_window Padding around phenotype coordinates in base pairs (default 1e6)
 #'
 #' @return Named list with elements: \code{indices} (integer vector of SNP
 #'   column indices) and \code{names} (character vector of SNP names)
 #' @export
-get_cis_snps <- function(bigsnp, gene_chr, gene_start, gene_end, cis_window = 1e6) {
+get_cis_snps <- function(bigsnp, pheno_chr, pheno_start, pheno_end, cis_window = 1e6) {
   
   # Define cis window
-  window_start <- gene_start - cis_window
-  window_end <- gene_end + cis_window
+  window_start <- pheno_start - cis_window
+  window_end <- pheno_end + cis_window
   
   # Filter SNPs on same chromosome within window
   snp_map <- bigsnp$map
   
-  cis_mask <- (snp_map$chromosome == gene_chr) &
+  cis_mask <- (snp_map$chromosome == pheno_chr) &
     (snp_map$physical.pos >= window_start) &
     (snp_map$physical.pos <= window_end)
   
