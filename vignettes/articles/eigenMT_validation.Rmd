@@ -4,7 +4,7 @@ output: rmarkdown::html_vignette
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(eval = FALSE)
+knitr::opts_chunk$set(eval = TRUE)
 ```
 
 # Overview
@@ -12,159 +12,120 @@ knitr::opts_chunk$set(eval = FALSE)
 This vignette validates the R implementation of eigenMT (implemented in
 `bigQTL`) against the **original** Python eigenMT
 ([joed3/eigenMT](https://github.com/joed3/eigenMT)) by running both on the
-real example dataset shipped with that repository.
+real example dataset shipped with that repository and diagnosing the sources
+of any difference.
 
-The example data (`example.tar.gz`) contains a real Matrix-eQTL run on
-chromosome 19: genotype matrix, SNP positions, phenotype positions, and
-cis-eQTL results. We download the archive at run-time, decompress it, and
-feed the same files to both implementations.
+## Known implementation differences (updated after audit)
 
-All code chunks use `eval = FALSE` and are intended to be run interactively.
+| # | Area | Python | R `bigQTL` (current, `"basic"`) | Severity |
+|---|------|--------|---------------------------------|----------|
+| 1 | **Shrinkage estimator — input** | `LedoitWolf.fit()` on raw centred genotype matrix (n × p); produces shrunk **covariance**, then normalised to correlation | `lw_shrink_geno()`: same approach — LW 2004 on biased sample covariance, then `cov2cor` | 🟢 Equivalent |
+| 2 | **Shrinkage formula** | Ledoit-Wolf 2004 analytic formula | Same analytical formula | 🟢 Equivalent |
+| 3 | **Missing genotype imputation** | `NA` → column mean before any computation | Mean-imputed before building FBM in this vignette | 🟢 Equivalent (when imputed) |
+| 4 | **SNP ordering** | By genomic position | By FBM column index | 🟡 Minor (equivalent when FBM is position-sorted) |
+| 5 | `count_eigenvalues` normalisation | Window size `m` as `variance` | `sum(eigenvalues)`; equivalent since `trace(cor) == p` | 🟢 Equivalent |
+| 6 | Window traversal | Disjoint, `break` on 1-SNP tail | Same | 🟢 Equivalent |
 
-## Shrinkage methods
+**Historical note:** The previous `bigQTL` implementation used the OAS (Chen
+et al. 2010) formula applied directly to a pre-computed *correlation* matrix.
+Because the correlation matrix has a fixed diagonal of 1 by construction,
+`tr(R)^2/p = p` is constant regardless of off-diagonal structure, causing OAS
+to systematically underestimate shrinkage (alpha ≈ 0 for typical window sizes
+and sample sizes). This is fixed in the current implementation.
 
-`bigQTL::eigenMT_gene()` supports two shrinkage methods via the
-`shrinkage_method` argument:
+## Shrinkage methods in `bigQTL`
 
-| Method | Description | Package dependency | Expected accuracy vs Python |
-|--------|-------------|--------------------|-----------------------------|
-| `"basic"` (default) | Analytical Ledoit-Wolf 2004 shrinkage applied to the biased sample covariance of the raw genotype matrix. Structurally identical to Python `sklearn.covariance.LedoitWolf`. | None (base R only) | Very close |
-| `"nlshrink"` | Non-parametric linear shrinkage via `nlshrink::linshrink_cov()` (Ledoit & Wolf 2017). Ports the [ImmuneAxisa/eigenMT](https://github.com/ImmuneAxisa/eigenMT) R implementation. | `nlshrink` (in Suggests) | Closest to Python |
+`bigQTL::eigenMT_gene()` and `bigQTL::eigenMT_batch()` support two shrinkage
+methods via the `shrinkage_method` argument:
 
-Use `shrinkage_method = "nlshrink"` when you need results that most closely
-match the Python implementation. The `"basic"` method gives very close results
-with no additional dependencies.
+| Method | Shrinkage estimator | Package dependency | Expected match to Python |
+|--------|--------------------|--------------------|--------------------------|
+| `"basic"` (default) | `lw_shrink_geno()`: LW 2004 analytical on biased genotype covariance | None (base R only) | Very close |
+| `"nlshrink"` | `nlshrink::linshrink_cov()` (LW 2017 non-parametric) — ports [ImmuneAxisa/eigenMT](https://github.com/ImmuneAxisa/eigenMT) | `nlshrink` (Suggests) | Closest to Python |
 
 ## Prerequisites
 
-You need a conda environment named `"eigenMT"` with the required Python
-packages. Create it once with:
-
 ```{r conda-setup}
 library(reticulate)
-conda_create(
-  "eigenMT",
-  packages = c("numpy", "scipy", "scikit-learn", "pandas"),
-  python_version = "3.8"
-)
+
+if (!any("eigenMT" %in% conda_list()[["name"]])) {
+  conda_create(
+    "eigenMT",
+    packages = c("numpy", "scipy", "scikit-learn<1.2", "pandas"),
+    python_version = "3.8"
+  )
+}
 ```
-
-To use the `"nlshrink"` method, install the nlshrink package:
-
-```{r nlshrink-install}
-install.packages("nlshrink")
-```
-
-Then load the packages:
 
 ```{r load-pkg}
 library(bigQTL)
 library(bigstatsr)
 library(bigsnpr)
-library(reticulate)
+# install.packages("nlshrink")   # optional: for shrinkage_method = "nlshrink"
+# install.packages("cvCovEst")   # optional: for the Python-faithful diagnostic below
 ```
 
 # 1. Download and Decompress the Example Data
-
-The example archive is fetched from the ImmuneAxisa/eigenMT GitHub repository,
-which includes outputs of the testing. We decompress it into a temporary
-directory.
 
 ```{r download-example}
 tmp_dir <- file.path(tempdir(), "eigenMT_validation")
 dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
 
-## Download the archive from ImmuneAxisa/eigenMT (includes test outputs)
 tgz_url  <- paste0(
-  "https://github.com/ImmuneAxisa/eigenMT/raw/",
-  "0972fd84d6a6dd85d148ee8f2eb320d4a1bc027f/example.tar.gz"
+  "https://github.com/joed3/eigenMT/raw/",
+  "f91e2837d34403cff48c9a248a7d4fb3fac98541/example.tar.gz"
 )
 tgz_file <- file.path(tmp_dir, "example.tar.gz")
+utils::download.file(tgz_url, destfile = tgz_file, mode = "wb", quiet = FALSE)
+message(sprintf("Downloaded %.2f MB", file.info(tgz_file)$size / 1e6))
 
-utils::download.file(tgz_url, destfile = tgz_file, mode = "wb",
-                     quiet = FALSE)
-message(sprintf("Downloaded %.1f MB to %s",
-                file.info(tgz_file)$size / 1e6, tgz_file))
-
-## Decompress
 utils::untar(tgz_file, exdir = tmp_dir)
-
-## The archive unpacks to an "example/" sub-directory
 example_dir <- file.path(tmp_dir, "example")
 stopifnot(dir.exists(example_dir))
-message("Example data files:")
-print(list.files(example_dir))
+message("Example files: ", paste(list.files(example_dir), collapse = ", "))
 ```
 
-After decompression the `example/` folder contains:
-
-- `genotypes.txt`     — SNPs × samples genotype matrix
-- `gen.positions.txt` — SNP id / chr / position
-- `phe.positions.txt` — gene id / chr / start / end
-- `cis.eqtls.txt`     — Matrix-eQTL output (one row per cis SNP–gene pair)
-
-# 2. Download the Python Script
-
-We fetch `eigenMT_fixed.py` from the ImmuneAxisa/eigenMT repository, which
-contains a corrected version that works with scikit-learn ≥ 1.2.
-
-> **Note:** The original `joed3/eigenMT` script suffers from a silent
-> `np.matrix` deprecation in scikit-learn ≥ 1.2 that makes
-> `sklearn.covariance.LedoitWolf.fit()` raise a `TypeError`, which is caught
-> by a bare `except:` clause and falls through to a degenerate all-1s
-> correlation matrix (m_eff = 1 per window). The fixed version converts
-> genotype arrays correctly before fitting.
+# 2. Download the Original Python Script
 
 ```{r download-python}
 py_script_url <- paste0(
-  "https://raw.githubusercontent.com/ImmuneAxisa/eigenMT/",
-  "0972fd84d6a6dd85d148ee8f2eb320d4a1bc027f/eigenMT_fixed.py"
+  "https://raw.githubusercontent.com/joed3/eigenMT/",
+  "f91e2837d34403cff48c9a248a7d4fb3fac98541/eigenMT.py"
 )
 py_script_file <- file.path(tmp_dir, "eigenMT.py")
-
-utils::download.file(py_script_url, destfile = py_script_file,
-                     quiet = FALSE)
-message("Downloaded eigenMT_fixed.py as eigenMT.py")
+utils::download.file(py_script_url, destfile = py_script_file, quiet = FALSE)
+message("Downloaded eigenMT.py")
 ```
 
-# 3. Inspect the Example Data
+# 3. Read the Example Data
 
-```{r inspect-data}
-## Genotype matrix: first column is the SNP id
+```{r read-data}
 geno_raw <- read.table(file.path(example_dir, "genotypes.txt"),
                        header = TRUE, sep = "\t",
                        check.names = FALSE, stringsAsFactors = FALSE)
-
-message(sprintf("Genotype matrix: %d SNPs x %d samples (+1 id col)",
+message(sprintf("Genotype matrix: %d SNPs x %d samples",
                 nrow(geno_raw), ncol(geno_raw) - 1L))
 
-## SNP positions: columns  snp / chr / pos
 gen_pos <- read.table(file.path(example_dir, "gen.positions.txt"),
-                      header = TRUE, sep = "\t",
-                      stringsAsFactors = FALSE)
-
-message(sprintf("SNP positions: %d rows; chromosomes: %s",
-                nrow(gen_pos),
-                paste(unique(gen_pos[[2L]]), collapse = ", ")))
-
-## Phenotype positions: columns  geneid / chr / s1 / s2
+                      header = TRUE, sep = "\t", stringsAsFactors = FALSE)
 phe_pos <- read.table(file.path(example_dir, "phe.positions.txt"),
-                      header = TRUE, sep = "\t",
-                      stringsAsFactors = FALSE)
-message(sprintf("Gene positions: %d genes", nrow(phe_pos)))
+                      header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+eqtl    <- read.table(file.path(example_dir, "cis.eqtls.txt"),
+                      header = TRUE, sep = "\t", stringsAsFactors = FALSE)
 
-## cis-eQTL results (Matrix-eQTL format)
-eqtl <- read.table(file.path(example_dir, "cis.eqtls.txt"),
-                   header = TRUE, sep = "\t",
-                   stringsAsFactors = FALSE)
-message(sprintf("cis-eQTL tests: %d rows; columns: %s",
-                nrow(eqtl), paste(colnames(eqtl), collapse = ", ")))
+message(sprintf("SNPs: %d | Genes: %d | eQTL rows: %d",
+                nrow(gen_pos), nrow(phe_pos), nrow(eqtl)))
+message(sprintf("eQTL file columns: %s", paste(colnames(eqtl), collapse = ", ")))
 ```
 
-# 4. Run Python eigenMT
+# 4. Detect Chromosome
 
-We run the fixed `eigenMT.py` via `reticulate::conda_run2()` using the
-`"eigenMT"` conda environment. `--CHROM 19` matches the example data.
+```{r detect-chrom}
+CHROM <- as.character(unique(gen_pos[[2L]])[1L])
+message(sprintf("Using chromosome: %s", CHROM))
+```
+
+# 5. Run Python eigenMT
 
 ```{r run-python}
 py_out_file <- file.path(tmp_dir, "eigenMT_output_py.txt")
@@ -173,7 +134,7 @@ reticulate::conda_run2(
   "python",
   args = c(
     py_script_file,
-    "--CHROM",      "19",
+    "--CHROM",      CHROM,
     "--QTL",        file.path(example_dir, "cis.eqtls.txt"),
     "--GEN",        file.path(example_dir, "genotypes.txt"),
     "--GENPOS",     file.path(example_dir, "gen.positions.txt"),
@@ -188,101 +149,70 @@ reticulate::conda_run2(
 
 python_results <- read.table(py_out_file, header = TRUE,
                              sep = "\t", stringsAsFactors = FALSE)
-message(sprintf("Python eigenMT: %d genes processed", nrow(python_results)))
+message(sprintf("Python eigenMT: %d genes", nrow(python_results)))
 print(head(python_results))
 ```
 
-# 5. Build a bigSNP Object from the Example Genotype Matrix
-
-The R implementation works on FBM-backed genotype matrices (bigSNP objects).
-We construct one from the same flat-file genotypes used by Python, applying
-the same missing-value imputation (column mean) that Python performs.
+# 6. Build bigSNP Object
 
 ```{r build-bigsnp}
-## Sample IDs: columns 2..end of the genotype matrix
 sample_ids <- colnames(geno_raw)[-1L]
 N_SAMPLES  <- length(sample_ids)
+snp_ids    <- as.character(geno_raw[[1L]])
+geno_mat   <- as.matrix(geno_raw[, -1L, drop = FALSE])
+storage.mode(geno_mat) <- "double"
 
-## SNP ids and integer genotype matrix (SNPs × samples)
-snp_ids  <- as.character(geno_raw[[1L]])
-geno_mat <- as.matrix(geno_raw[, -1L, drop = FALSE])
-storage.mode(geno_mat) <- "integer"
-
-## Transpose to samples × SNPs for the FBM
+## Samples x SNPs
 geno_mat_t <- t(geno_mat)
 N_SNPS     <- ncol(geno_mat_t)
 
-## Match SNP positions from gen.positions.txt
-## Column order: snp_id / chr / pos  (use positional indexing for robustness)
+## SNP position lookup
 snp_order <- match(snp_ids, as.character(gen_pos[[1L]]))
-if (any(is.na(snp_order))) {
-  warning(sprintf(
-    "%d SNP IDs in genotypes.txt not found in gen.positions.txt",
-    sum(is.na(snp_order))
-  ))
-}
+if (any(is.na(snp_order)))
+  warning(sum(is.na(snp_order)), " SNP IDs not found in gen.positions.txt")
 chr_vec <- as.character(gen_pos[[2L]][snp_order])
-pos_vec <- as.numeric( gen_pos[[3L]][snp_order])
+pos_vec <- as.numeric(gen_pos[[3L]][snp_order])
 
-## Impute NA genotypes with per-SNP column means
-## (mirrors Python: genos[genos == -1] = np.mean(genos[genos != -1]))
+## Impute NA -> column mean (mirrors Python)
 for (j in seq_len(N_SNPS)) {
-  col_j   <- geno_mat_t[, j]
-  na_mask <- is.na(col_j)
-  if (any(na_mask)) {
-    geno_mat_t[na_mask, j] <- as.integer(round(mean(col_j, na.rm = TRUE)))
-  }
+  col_j <- geno_mat_t[, j]
+  na_m  <- is.na(col_j)
+  if (any(na_m))
+    geno_mat_t[na_m, j] <- mean(col_j, na.rm = TRUE)
 }
 
-## Create FBM
+## FBM
 fbm_file <- file.path(tmp_dir, "geno")
 geno_fbm <- bigstatsr::FBM(
-  nrow = N_SAMPLES, ncol = N_SNPS, type = "integer",
-  backingfile = fbm_file,
-  create_bk   = TRUE
+  nrow = N_SAMPLES, ncol = N_SNPS, type = "double",
+  backingfile = fbm_file, create_bk = TRUE
 )
 geno_fbm[] <- geno_mat_t
 
-## Assemble bigSNP-like object
 snp_map <- data.frame(
-  chromosome   = chr_vec,
-  marker.ID    = snp_ids,
-  genetic.dist = rep(0, N_SNPS),
-  physical.pos = pos_vec,
-  allele1      = rep("A", N_SNPS),
-  allele2      = rep("C", N_SNPS),
+  chromosome = chr_vec, marker.ID = snp_ids,
+  genetic.dist = 0, physical.pos = pos_vec,
+  allele1 = "A", allele2 = "C",
   stringsAsFactors = FALSE
 )
-
 snp_fam <- data.frame(
-  family.ID   = sample_ids,
-  sample.ID   = sample_ids,
-  paternal.ID = rep(0L, N_SAMPLES),
-  maternal.ID = rep(0L, N_SAMPLES),
-  sex         = rep(0L, N_SAMPLES),
-  affection   = rep(0L, N_SAMPLES),
+  family.ID = sample_ids, sample.ID = sample_ids,
+  paternal.ID = 0L, maternal.ID = 0L,
+  sex = 0L, affection = 0L,
   stringsAsFactors = FALSE
 )
-
 bigsnp_obj <- structure(
   list(genotypes = geno_fbm, map = snp_map, fam = snp_fam),
   class = "bigSNP"
 )
 ind.row <- seq_len(N_SAMPLES)
-
-message(sprintf("bigSNP object: %d samples, %d SNPs", N_SAMPLES, N_SNPS))
+message(sprintf("bigSNP: %d samples x %d SNPs", N_SAMPLES, N_SNPS))
 ```
 
-# 6. Build Gene Coordinates from phe.positions.txt
-
-We restrict to chromosome 19 genes that appear in the cis-eQTL file,
-mirroring Python's `--CHROM 19` filter.
+# 7. Gene Coordinates
 
 ```{r build-features}
-## Second column of the eQTL file is the gene id
-genes_in_eqtl <- unique(eqtl[[2L]])
-
-## phe.positions.txt: geneid / chr / s1 / s2
+genes_in_eqtl  <- unique(eqtl[[2L]])
 features_coord <- data.frame(
   feature_name = as.character(phe_pos[[1L]]),
   chromosome   = as.character(phe_pos[[2L]]),
@@ -290,114 +220,273 @@ features_coord <- data.frame(
   end          = as.numeric(phe_pos[[4L]]),
   stringsAsFactors = FALSE
 )
-
-## Keep chr19 genes that appear in the eQTL file
 features_coord <- features_coord[
-  features_coord$chromosome == "19" &
+  features_coord$chromosome == CHROM &
     features_coord$feature_name %in% genes_in_eqtl, ]
 
-message(sprintf("Genes for R eigenMT: %d", nrow(features_coord)))
-print(head(features_coord))
+## Sub-sample for faster article testing (first 20 genes)
+N_GENES_SAMPLE <- 20L
+if (nrow(features_coord) > N_GENES_SAMPLE) {
+  features_coord <- features_coord[seq_len(N_GENES_SAMPLE), ]
+  message(sprintf("Sub-sampled to first %d genes for article testing", N_GENES_SAMPLE))
+}
+message(sprintf("Genes to process: %d", nrow(features_coord)))
 ```
 
-# 7. Run R eigenMT — Both Methods
+# 8. Shrinkage Diagnostic — Side-by-Side on One Window
 
-We run both `"basic"` (default, no extra deps) and `"nlshrink"` (closest to
-Python, requires `nlshrink` package) methods for comparison.
+Inspect the shrinkage intensity of the current `bigQTL` `"basic"` approach
+vs the Python-faithful cvCovEst approach on a small test window.
 
-```{r run-r-eigenmt}
+```{r shrinkage-diagnostic}
+## Take the first 50 SNPs as a test window
+diag_cols <- seq_len(min(50L, N_SNPS))
+win_geno  <- geno_mat_t[, diag_cols]   # n x p (samples x SNPs)
+
+## --- Method A: new bigQTL "basic" (lw_shrink_geno) ---
+shrunk_basic <- lw_shrink_geno(win_geno)
+eigs_basic   <- eigen(shrunk_basic, symmetric = TRUE, only.values = TRUE)$values
+eigs_basic[eigs_basic < 0] <- 0
+m_eff_basic  <- count_eigenvalues(eigs_basic, 0.99)
+
+## Historical reference: show what OAS-on-correlation gives
+R_raw <- cor(win_geno)
+p     <- ncol(win_geno)
+n     <- nrow(win_geno)
+trR2  <- sum(R_raw^2)
+num   <- (1 - 2/p) * trR2 + p^2
+den   <- (n + 1 - 2/p) * (trR2 - p)
+alpha_oas <- max(0, min(1, num / den))
+message(sprintf(
+  "Historical OAS-on-correlation alpha: %.6f  (near 0 = almost no shrinkage)",
+  alpha_oas
+))
+message(sprintf(
+  "New lw_shrink_geno M_eff (p=%d window): %d  (cf. OAS which would give ~%d)",
+  p, m_eff_basic, count_eigenvalues(pmax(eigen(R_raw, symmetric = TRUE,
+    only.values = TRUE)$values, 0), 0.99)
+))
+
+## --- Method B: Python-faithful via cvCovEst::linearShrinkLWEst ---
+if (requireNamespace("cvCovEst", quietly = TRUE)) {
+  lw_cov  <- cvCovEst::linearShrinkLWEst(dat = win_geno)
+  d_inv   <- diag(1 / sqrt(diag(lw_cov)))
+  lw_cor  <- d_inv %*% lw_cov %*% d_inv
+  diag(lw_cor) <- 1
+  eigs_lw <- eigen(lw_cor, symmetric = TRUE, only.values = TRUE)$values
+  eigs_lw[eigs_lw < 0] <- 0
+  m_eff_lw_cv <- count_eigenvalues(eigs_lw, 0.99)
+  message(sprintf("cvCovEst LW M_eff (p=%d window): %d", p, m_eff_lw_cv))
+} else {
+  message("Install cvCovEst for the Python-faithful diagnostic: install.packages('cvCovEst')")
+}
+```
+
+# 9. Python-Faithful Local Helper (cvCovEst)
+
+Defines `lw_shrink_lw()` and `eigenMT_gene_lw()` as validation-only helpers
+that use `cvCovEst::linearShrinkLWEst` — the closest in-memory equivalent to
+Python's `sklearn.covariance.LedoitWolf`.
+
+```{r lw-faithful-helper}
+## lw_shrink_lw: Python-faithful LW shrinkage for a genotype window
+## Requires cvCovEst package.
+lw_shrink_lw <- function(win_geno) {
+  p <- ncol(win_geno)
+  if (p == 1L) return(matrix(1, 1, 1))
+
+  shrunk_cov <- cvCovEst::linearShrinkLWEst(dat = win_geno)
+
+  diag_vals <- diag(shrunk_cov)
+  if (any(diag_vals <= 0)) return(matrix(1, p, p))
+
+  d_inv      <- diag(1 / sqrt(diag_vals))
+  shrunk_cor <- d_inv %*% shrunk_cov %*% d_inv
+  diag(shrunk_cor) <- 1
+  return(shrunk_cor)
+}
+
+## eigenMT_gene_lw: per-gene M_eff using lw_shrink_lw (in-memory genotype matrix)
+eigenMT_gene_lw <- function(geno_mat_t, snp_indices,
+                             var_thresh = 0.99, window = 200L) {
+  M <- length(snp_indices)
+  if (M == 0L) return(0L)
+  if (M == 1L) return(1L)
+
+  snp_indices <- sort(snp_indices)
+  m_eff <- 0L
+  start <- 1L
+
+  while (start <= M) {
+    stop     <- min(start + window - 1L, M)
+    win_size <- stop - start + 1L
+
+    if (win_size == 1L) {
+      m_eff <- m_eff + 1L
+      break
+    }
+
+    win_idx  <- snp_indices[start:stop]
+    win_geno <- geno_mat_t[, win_idx, drop = FALSE]
+
+    shrunk_cor <- lw_shrink_lw(win_geno)
+
+    eigs <- eigen(shrunk_cor, symmetric = TRUE, only.values = TRUE)$values
+    eigs[eigs < 0] <- 0
+
+    m_eff <- m_eff + count_eigenvalues(eigs, var_thresh)
+    start <- stop + 1L
+  }
+
+  return(m_eff)
+}
+```
+
+# 10. Run All R Implementations
+
+Three methods are compared against Python:
+
+- **Method A** (`"basic"`): new `bigQTL` default — `lw_shrink_geno()` (LW 2004 on biased
+  genotype covariance, no extra dependencies)
+- **Method B** (`"nlshrink"`): new `bigQTL` optional — `nlshrink::linshrink_cov()`
+  (requires `nlshrink`)
+- **Method C** (`lw_faithful`): local validation helper using
+  `cvCovEst::linearShrinkLWEst` (requires `cvCovEst`), operates on the
+  in-memory genotype matrix
+
+```{r run-r-all}
 CIS_DIST   <- 1e6
 VAR_THRESH <- 0.99
 EIGEN_WIN  <- 200L
 
-run_eigenmt_r <- function(method) {
-  lapply(seq_len(nrow(features_coord)), function(i) {
-    gene_row <- features_coord[i, ]
+has_nlshrink <- requireNamespace("nlshrink",  quietly = TRUE)
+has_cvcov    <- requireNamespace("cvCovEst",  quietly = TRUE)
 
-    cis_result <- get_cis_snps(
-      bigsnp      = bigsnp_obj,
-      pheno_chr   = gene_row$chromosome,
-      pheno_start = gene_row$start,
-      pheno_end   = gene_row$end,
-      cis_window  = CIS_DIST
-    )
+r_results <- lapply(seq_len(nrow(features_coord)), function(i) {
+  gene_row <- features_coord[i, ]
 
-    m_eff <- eigenMT_gene(
+  cis_result <- get_cis_snps(
+    bigsnp      = bigsnp_obj,
+    pheno_chr   = gene_row$chromosome,
+    pheno_start = gene_row$start,
+    pheno_end   = gene_row$end,
+    cis_window  = CIS_DIST
+  )
+  idx   <- cis_result$indices
+  n_cis <- length(idx)
+
+  ## Method A: bigQTL basic (lw_shrink_geno, no extra deps)
+  m_eff_basic <- eigenMT_gene(
+    bigsnp           = bigsnp_obj,
+    snp_indices      = idx,
+    ind.row          = ind.row,
+    var_thresh       = VAR_THRESH,
+    window           = EIGEN_WIN,
+    shrinkage_method = "basic"
+  )
+
+  ## Method B: bigQTL nlshrink (optional)
+  m_eff_nlshrink <- if (has_nlshrink) {
+    eigenMT_gene(
       bigsnp           = bigsnp_obj,
-      snp_indices      = cis_result$indices,
+      snp_indices      = idx,
       ind.row          = ind.row,
       var_thresh       = VAR_THRESH,
       window           = EIGEN_WIN,
-      shrinkage_method = method
+      shrinkage_method = "nlshrink"
     )
+  } else NA_integer_
 
-    data.frame(
-      gene       = gene_row$feature_name,
-      n_cis_snps = length(cis_result$indices),
-      m_eff      = m_eff,
-      stringsAsFactors = FALSE
+  ## Method C: Python-faithful local helper (cvCovEst, optional)
+  m_eff_lw <- if (has_cvcov) {
+    eigenMT_gene_lw(
+      geno_mat_t  = geno_mat_t,
+      snp_indices = idx,
+      var_thresh  = VAR_THRESH,
+      window      = EIGEN_WIN
     )
-  }) |> do.call(what = rbind)
-}
+  } else NA_integer_
 
-## Basic method (default, no extra dependencies)
-r_basic <- run_eigenmt_r("basic")
-message(sprintf("R eigenMT (basic):    %d genes processed", nrow(r_basic)))
-print(head(r_basic))
+  data.frame(
+    gene           = gene_row$feature_name,
+    n_cis_snps     = n_cis,
+    m_eff_basic    = m_eff_basic,
+    m_eff_nlshrink = m_eff_nlshrink,
+    m_eff_lw       = m_eff_lw,
+    stringsAsFactors = FALSE
+  )
+})
 
-## nlshrink method (requires nlshrink package, closest to Python)
-r_nlshrink <- run_eigenmt_r("nlshrink")
-message(sprintf("R eigenMT (nlshrink): %d genes processed", nrow(r_nlshrink)))
-print(head(r_nlshrink))
+r_df <- do.call(rbind, r_results)
+message(sprintf("R eigenMT: %d genes", nrow(r_df)))
+print(head(r_df))
 ```
 
-# 8. Unit Tests
-
-These tests verify internal consistency of the R helpers, independent of
-the Python comparison.
+# 11. Unit Tests
 
 ```{r unit-tests}
 n_failures <- 0L
 
-## 8a. count_eigenvalues vs reference Python find_num_eigs -----------------
+## 11a. count_eigenvalues vs Python find_num_eigs ----------------------------
 py_find_num_eigs <- function(eigenvalues, variance, var_thresh) {
   eigenvalues <- sort(eigenvalues, decreasing = TRUE)
-  running_sum <- 0
-  counter     <- 0L
+  running_sum <- 0; counter <- 0L
   while (running_sum < variance * var_thresh) {
     running_sum <- running_sum + eigenvalues[counter + 1L]
     counter     <- counter + 1L
   }
   counter
 }
-
 test_eigs <- c(3.7, 2.3, 2, 1.5, 1.1, 1, 0.8, 0.5, 0.4, 0.3, 0.2, 0.1, 0.05, 0.05)
-r_count  <- count_eigenvalues(test_eigs, 0.99)
-py_count <- py_find_num_eigs(test_eigs, length(test_eigs), 0.99)
-if (r_count != py_count) {
+r_c  <- count_eigenvalues(test_eigs, 0.99)
+py_c <- py_find_num_eigs(test_eigs, length(test_eigs), 0.99)
+if (r_c != py_c) {
   n_failures <- n_failures + 1L
-  message(sprintf("  FAIL count_eigenvalues: R=%d Python=%d", r_count, py_count))
+  message(sprintf("  FAIL count_eigenvalues: R=%d Python=%d", r_c, py_c))
 } else {
-  message(sprintf("  PASS count_eigenvalues (both = %d)", r_count))
+  message(sprintf("  PASS count_eigenvalues (both = %d)", r_c))
 }
 
-## 8b. lw_shrink_geno sanity checks -----------------------------------------
-test_cols <- seq_len(min(20L, N_SNPS))
-geno_sub  <- geno_mat_t[, test_cols, drop = FALSE]
-storage.mode(geno_sub) <- "double"
-shrunk <- lw_shrink_geno(geno_sub)
-eigs   <- eigen(shrunk, symmetric = TRUE, only.values = TRUE)$values
-if (!all(eigs >= -1e-10)) {
+## 11b. big_cor vs base cor() ------------------------------------------------
+test_cols <- seq_len(min(30L, N_SNPS))
+base_cor  <- cor(geno_mat_t[, test_cols])
+fbm_cor   <- bigstatsr::big_cor(geno_fbm, ind.row = ind.row, ind.col = test_cols)[]
+frob      <- sqrt(sum((base_cor - fbm_cor)^2))
+if (frob >= 1e-6) {
   n_failures <- n_failures + 1L
-  message("  FAIL lw_shrink_geno: not PSD")
-} else if (!all(abs(diag(shrunk) - 1) <= 1e-10)) {
-  n_failures <- n_failures + 1L
-  message("  FAIL lw_shrink_geno: diagonal != 1")
+  message(sprintf("  FAIL big_cor vs cor(): Frob=%.2e", frob))
+} else {
+  message(sprintf("  PASS big_cor vs cor() (Frob=%.2e)", frob))
+}
+
+## 11c. lw_shrink_geno sanity (current bigQTL "basic") ----------------------
+test_win <- geno_mat_t[, seq_len(min(20L, N_SNPS)), drop = FALSE]
+basic_cor <- lw_shrink_geno(test_win)
+eigs_basic <- eigen(basic_cor, symmetric = TRUE, only.values = TRUE)$values
+if (!all(eigs_basic >= -1e-10)) {
+  n_failures <- n_failures + 1L; message("  FAIL lw_shrink_geno: not PSD")
+} else if (!all(abs(diag(basic_cor) - 1) <= 1e-10)) {
+  n_failures <- n_failures + 1L; message("  FAIL lw_shrink_geno: diagonal != 1")
 } else {
   message("  PASS lw_shrink_geno (PSD, diagonal = 1)")
 }
 
-## 8c. eigenMT_gene edge cases ----------------------------------------------
+## 11d. lw_shrink_lw sanity (cvCovEst, optional) ----------------------------
+if (has_cvcov) {
+  lw_cor  <- lw_shrink_lw(test_win)
+  eigs_lw <- eigen(lw_cor, symmetric = TRUE, only.values = TRUE)$values
+  if (!all(eigs_lw >= -1e-10)) {
+    n_failures <- n_failures + 1L; message("  FAIL lw_shrink_lw: not PSD")
+  } else if (!all(abs(diag(lw_cor) - 1) <= 1e-10)) {
+    n_failures <- n_failures + 1L; message("  FAIL lw_shrink_lw: diagonal != 1")
+  } else {
+    message("  PASS lw_shrink_lw (PSD, diagonal = 1)")
+  }
+} else {
+  message("  SKIP lw_shrink_lw (cvCovEst not installed)")
+}
+
+## 11e. eigenMT_gene edge cases (basic method) --------------------------------
 m1 <- eigenMT_gene(bigsnp_obj, snp_indices = 1L,         ind.row = ind.row)
 m0 <- eigenMT_gene(bigsnp_obj, snp_indices = integer(0), ind.row = ind.row)
 if (m1 != 1L) { n_failures <- n_failures + 1L; message("  FAIL single-SNP M_eff") }
@@ -407,79 +496,84 @@ if (m1 == 1L && m0 == 0L) message("  PASS eigenMT_gene edge cases")
 message(sprintf("\nUnit tests: %d failure(s)", n_failures))
 ```
 
-# 9. Compare R vs Python M_eff
-
-We join on gene ID and compare both R methods against Python.
+# 12. Full Comparison: Python vs R Methods
 
 ```{r compare}
-## Robustly detect the gene column name in Python output
+## Identify gene column in Python output
 py_gene_col <- intersect(colnames(python_results),
                          c("gene", "geneid", "phenotype_id"))
-if (length(py_gene_col) == 0L) {
-  stop(
-    "Cannot identify gene column in Python eigenMT output. Columns: ",
-    paste(colnames(python_results), collapse = ", ")
-  )
-}
+if (length(py_gene_col) == 0L)
+  stop("Cannot identify gene col in Python output: ",
+       paste(colnames(python_results), collapse = ", "))
 py_gene_col <- py_gene_col[1L]
 
-build_comparison <- function(r_df, method_label) {
-  do.call(rbind, lapply(r_df$gene, function(gene) {
-    r_row  <- r_df[r_df$gene == gene, ]
-    py_row <- python_results[python_results[[py_gene_col]] == gene, ]
-    if (nrow(r_row) == 0L || nrow(py_row) == 0L) return(NULL)
-    m_r  <- r_row$m_eff[1L]
-    m_py <- py_row$TESTS[1L]
-    data.frame(
-      gene       = gene,
-      method     = method_label,
-      n_cis_snps = r_row$n_cis_snps[1L],
-      m_eff_r    = m_r,
-      m_eff_py   = m_py,
-      abs_diff   = abs(m_r - m_py),
-      rel_diff   = abs(m_r - m_py) / max(m_py, 1L),
-      stringsAsFactors = FALSE
-    )
-  }))
-}
+comparison <- do.call(rbind, lapply(r_df$gene, function(gene) {
+  r_row  <- r_df[r_df$gene == gene, ]
+  py_row <- python_results[python_results[[py_gene_col]] == gene, ]
+  if (nrow(r_row) == 0L || nrow(py_row) == 0L) return(NULL)
+  m_py  <- py_row$TESTS[1L]
+  m_b   <- r_row$m_eff_basic[1L]
+  m_nls <- r_row$m_eff_nlshrink[1L]
+  m_lw  <- r_row$m_eff_lw[1L]
+  data.frame(
+    gene              = gene,
+    n_cis_snps        = r_row$n_cis_snps[1L],
+    m_eff_py          = m_py,
+    m_eff_basic       = m_b,
+    m_eff_nlshrink    = m_nls,
+    m_eff_lw          = m_lw,
+    rel_diff_basic    = abs(m_b   - m_py) / max(m_py, 1L),
+    rel_diff_nlshrink = if (!is.na(m_nls)) abs(m_nls - m_py) / max(m_py, 1L) else NA_real_,
+    rel_diff_lw       = if (!is.na(m_lw))  abs(m_lw  - m_py) / max(m_py, 1L) else NA_real_,
+    stringsAsFactors = FALSE
+  )
+}))
 
-cmp_basic    <- build_comparison(r_basic,    "basic")
-cmp_nlshrink <- build_comparison(r_nlshrink, "nlshrink")
-
-print_summary <- function(cmp, label) {
-  message(sprintf("\n--- Method: %s ---", label))
-  message(sprintf(
-    "M_eff summary — R: mean=%.1f sd=%.1f | Python: mean=%.1f sd=%.1f",
-    mean(cmp$m_eff_r),  sd(cmp$m_eff_r),
-    mean(cmp$m_eff_py), sd(cmp$m_eff_py)
-  ))
-  message(sprintf(
-    "Relative diff — median=%.1f%%  max=%.1f%%",
-    100 * median(cmp$rel_diff),
-    100 * max(cmp$rel_diff)
-  ))
-}
-
-print_summary(cmp_basic,    "basic")
-print_summary(cmp_nlshrink, "nlshrink")
-
-## Side-by-side comparison table
-comparison <- merge(
-  cmp_basic[, c("gene", "n_cis_snps", "m_eff_py",
-                "m_eff_r", "rel_diff")],
-  cmp_nlshrink[, c("gene", "m_eff_r", "rel_diff")],
-  by = "gene", suffixes = c("_basic", "_nlshrink")
-)
-colnames(comparison)[colnames(comparison) == "m_eff_r_basic"]      <- "m_eff_basic"
-colnames(comparison)[colnames(comparison) == "m_eff_r_nlshrink"]   <- "m_eff_nlshrink"
-colnames(comparison)[colnames(comparison) == "rel_diff_basic"]      <- "rel_diff_basic"
-colnames(comparison)[colnames(comparison) == "rel_diff_nlshrink"]   <- "rel_diff_nlshrink"
-
-message(sprintf("\nComparison table (%d genes):", nrow(comparison)))
+message(sprintf("Comparison: %d genes", nrow(comparison)))
 print(comparison)
+
+message(sprintf(
+  "\nM_eff means — Python: %.1f | basic: %.1f | nlshrink: %s | lw (cvCovEst): %s",
+  mean(comparison$m_eff_py),
+  mean(comparison$m_eff_basic),
+  if (!all(is.na(comparison$m_eff_nlshrink)))
+    sprintf("%.1f", mean(comparison$m_eff_nlshrink, na.rm = TRUE)) else "n/a",
+  if (!all(is.na(comparison$m_eff_lw)))
+    sprintf("%.1f", mean(comparison$m_eff_lw, na.rm = TRUE)) else "n/a"
+))
+
+message(sprintf(
+  "Relative diff vs Python — basic: median=%.0f%% max=%.0f%%",
+  100 * median(comparison$rel_diff_basic, na.rm = TRUE),
+  100 * max(comparison$rel_diff_basic, na.rm = TRUE)
+))
+if (!all(is.na(comparison$rel_diff_nlshrink)))
+  message(sprintf(
+    "                       nlshrink: median=%.0f%% max=%.0f%%",
+    100 * median(comparison$rel_diff_nlshrink, na.rm = TRUE),
+    100 * max(comparison$rel_diff_nlshrink, na.rm = TRUE)
+  ))
+if (!all(is.na(comparison$rel_diff_lw)))
+  message(sprintf(
+    "                         lw (cvCovEst): median=%.0f%% max=%.0f%%",
+    100 * median(comparison$rel_diff_lw, na.rm = TRUE),
+    100 * max(comparison$rel_diff_lw, na.rm = TRUE)
+  ))
+
+MEFF_TOL <- 0.20
+bad_basic <- comparison[comparison$rel_diff_basic > MEFF_TOL, ]
+if (nrow(bad_basic) > 0L) {
+  message(sprintf("WARNING: %d gene(s) with basic M_eff diff > %d%%:",
+                  nrow(bad_basic), as.integer(MEFF_TOL * 100)))
+  print(bad_basic[, c("gene", "n_cis_snps", "m_eff_py", "m_eff_basic",
+                       "rel_diff_basic")])
+} else {
+  message(sprintf("All %d genes: basic within %d%% of Python",
+                  nrow(comparison), as.integer(MEFF_TOL * 100)))
+}
 ```
 
-# 10. Clean Up
+# 13. Clean Up
 
 ```{r cleanup}
 unlink(tmp_dir, recursive = TRUE)
