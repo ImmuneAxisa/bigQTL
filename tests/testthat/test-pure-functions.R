@@ -79,9 +79,19 @@ test_that("lw_shrink_geno output is positive semi-definite", {
   expect_true(all(eigs >= -1e-10))
 })
 
-test_that("lw_shrink_geno handles perfect LD (constant columns)", {
-  X <- matrix(rep(c(0, 1, 2), times = 30), nrow = 30, ncol = 3)
+test_that("lw_shrink_geno handles zero-variance columns (monomorphic SNPs)", {
+  # All samples have same genotype: covariance matrix is near-zero -> returns all-1s
+  X <- matrix(1.0, nrow = 30, ncol = 3)
+  out <- lw_shrink_geno(X)
+  expect_equal(out, matrix(1, 3, 3))
+})
+
+test_that("lw_shrink_geno handles perfectly correlated non-constant columns", {
+  # All columns identical but non-constant: should return a valid correlation matrix
+  col <- as.double(sample(0:2, 30, replace = TRUE))
+  X <- cbind(col, col, col)
   out <- lw_shrink_geno(X)
   expect_equal(dim(out), c(3L, 3L))
   expect_true(all(abs(diag(out) - 1) < 1e-10))
+  expect_true(all(eigen(out, symmetric = TRUE, only.values = TRUE)$values >= -1e-10))
 })

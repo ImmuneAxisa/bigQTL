@@ -50,8 +50,10 @@ lw_shrink_geno <- function(X) {
   # Biased sample covariance (1/n denominator, matching sklearn)
   S <- crossprod(X_c) / n
 
-  # Degenerate case: all SNPs in perfect LD
-  if (all(abs(S - S[1, 1]) < 1e-10 * max(abs(S)))) {
+  # Degenerate case: all genotypes are effectively constant (monomorphic
+  # window). The covariance matrix is near-zero, so treat as perfect LD
+  # and return the all-ones correlation matrix (m_eff = 1).
+  if (max(abs(S)) < 1e-10) {
     return(matrix(1, p, p))
   }
 
@@ -62,6 +64,8 @@ lw_shrink_geno <- function(X) {
 
   denominator <- (n + 2) * (trace_S2 - trace_S^2 / p)
 
+  # denominator is zero only when S is a scaled identity, i.e., no excess
+  # correlation signal; skip shrinkage in that case (rho = 0).
   if (abs(denominator) < 1e-15) {
     rho <- 0
   } else {
@@ -71,9 +75,12 @@ lw_shrink_geno <- function(X) {
   Sigma_hat <- (1 - rho) * S
   diag(Sigma_hat) <- diag(Sigma_hat) + rho * mu
 
-  # Convert to correlation matrix
+  # Convert to correlation matrix.
+  # A near-zero standard deviation means a (near-)monomorphic SNP in this
+  # window. Setting its sd to 1 yields an identity row/column — treating it
+  # as an independent test, which is conservative and numerically safe.
   sd_vec <- sqrt(diag(Sigma_hat))
-  sd_vec[sd_vec < 1e-15] <- 1  # guard against zero variance
+  sd_vec[sd_vec < sqrt(.Machine$double.eps)] <- 1
   shrunk_cor <- Sigma_hat / outer(sd_vec, sd_vec)
   diag(shrunk_cor) <- 1
 
