@@ -20,6 +20,7 @@ Imports:
     stats
 Suggests:
     testthat (>= 3.0.0),
+    nlshrink,
     reticulate,
     knitr,
     rmarkdown
