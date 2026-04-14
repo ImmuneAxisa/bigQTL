@@ -4,7 +4,14 @@
 \alias{eigenMT_gene}
 \title{Compute eigenMT effective number of tests for a single gene}
 \usage{
-eigenMT_gene(bigsnp, snp_indices, ind.row, var_thresh = 0.99, window = 200)
+eigenMT_gene(
+  bigsnp,
+  snp_indices,
+  ind.row,
+  var_thresh = 0.99,
+  window = 200,
+  shrinkage_method = c("basic", "nlshrink")
+)
 }
 \arguments{
 \item{bigsnp}{bigSNP object with \code{$genotypes} (FBM) and \code{$map}}
@@ -18,6 +25,9 @@ for cis-SNPs of this gene}
 (default 0.99)}
 
 \item{window}{Maximum SNP window size for LD block computation (default 200)}
+
+\item{shrinkage_method}{Character string specifying the shrinkage estimator:
+\code{"basic"} (default) or \code{"nlshrink"} (requires \pkg{nlshrink}).}
 }
 \value{
 Integer M_eff: effective number of independent tests for this gene
@@ -25,8 +35,18 @@ Integer M_eff: effective number of independent tests for this gene
 \description{
 Computes the effective number of independent tests (M_eff) for a single
 gene using the eigenMT method. Splits cis-SNPs into disjoint windows of
-size \code{window}, computes the shrunk correlation matrix in each window
-via \code{bigstatsr::big_cor()} + Ledoit-Wolf shrinkage, eigendecomposes,
-and counts eigenvalues needed to explain \code{var_thresh} of total
-variance. Sums M_eff across windows.
+size \code{window}, computes the shrunk correlation matrix in each window,
+eigendecomposes, and counts eigenvalues needed to explain \code{var_thresh}
+of total variance. Sums M_eff across windows.
+}
+\details{
+Two shrinkage methods are available via \code{shrinkage_method}:
+\describe{
+\item{\code{"basic"}}{Analytical Ledoit-Wolf 2004 shrinkage applied to the
+biased sample covariance of the raw genotype matrix (no extra
+dependencies). Results are very close to the Python eigenMT.}
+\item{\code{"nlshrink"}}{Non-parametric linear shrinkage via
+\code{nlshrink::linshrink_cov()} (requires the \pkg{nlshrink} package).
+Gives results closest to the Python sklearn LedoitWolf implementation.}
+}
 }

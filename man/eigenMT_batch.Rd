@@ -11,6 +11,7 @@ eigenMT_batch(
   cis_window = 1e+06,
   var_thresh = 0.99,
   eigenmt_window = 200,
+  shrinkage_method = c("basic", "nlshrink"),
   ncores = 1
 )
 }
@@ -31,6 +32,10 @@ genotype FBM}
 (default 0.99)}
 
 \item{eigenmt_window}{SNP window size for LD block computation (default 200)}
+
+\item{shrinkage_method}{Character string specifying the shrinkage estimator
+passed to \code{eigenMT_gene()}: \code{"basic"} (default) or
+\code{"nlshrink"} (requires \pkg{nlshrink}).}
 
 \item{ncores}{Number of cores for parallel computation (default 1)}
 }
