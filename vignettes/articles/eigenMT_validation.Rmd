@@ -223,6 +223,53 @@ features_coord <- data.frame(
 features_coord <- features_coord[
   features_coord$chromosome == CHROM &
     features_coord$feature_name %in% genes_in_eqtl, ]
+message(sprintf("Genes to process: %d", nrow(features_coord)))
+```
+
+# 8. Shrinkage Diagnostic — Side-by-Side Comparison on One Window
+
+Before running the full analysis, inspect the shrinkage behaviour of the
+three approaches on a small window of real data so we can understand why
+OAS-on-correlation fails.
+
+```{r shrinkage-diagnostic}
+## Take the first 50 SNPs as a test window
+diag_cols <- seq_len(min(50L, N_SNPS))
+win_geno  <- geno_mat_t[, diag_cols]   # n x p (samples x SNPs)
+
+## --- Method A: OAS on correlation (current bigQTL) ---
+R_raw <- cor(win_geno)
+p     <- ncol(win_geno)
+n     <- nrow(win_geno)
+trR2  <- sum(R_raw^2)
+num   <- (1 - 2/p) * trR2 + p^2
+den   <- (n + 1 - 2/p) * (trR2 - p)
+alpha_oas <- max(0, min(1, num / den))
+message(sprintf("OAS-on-correlation alpha: %.6f  (near 0 = almost no shrinkage)", alpha_oas))
+
+## --- Method B: LW 2004 on raw data (Python-faithful) ---
+lw_cov   <- cvCovEst::linearShrinkLWEst(dat = win_geno)
+## Convert shrunk covariance to correlation
+d_inv    <- diag(1 / sqrt(diag(lw_cov)))
+lw_cor   <- d_inv %*% lw_cov %*% d_inv
+## The LW shrinkage intensity (b_n2/d_n2) can be read from the off-diagonal shrinkage:
+## alpha_lw = 1 - (off-diag of lw_cov) / (off-diag of sample_cov)
+sample_cov  <- cov(win_geno)
+alpha_lw_approx <- 1 - mean(lw_cov[row(lw_cov) != col(lw_cov)] /
+                             sample_cov[row(sample_cov) != col(sample_cov)])
+message(sprintf("LW2004-on-raw-data effective shrinkage: ~%.6f", alpha_lw_approx))
+
+## --- Compare eigenvalue distributions ---
+eigs_unshrunk <- eigen(R_raw,         symmetric=TRUE, only.values=TRUE)$values
+eigs_oas      <- eigen(lw_shrink_cor(R_raw, n), symmetric=TRUE, only.values=TRUE)$values
+eigs_lw       <- eigen(lw_cor,        symmetric=TRUE, only.values=TRUE)$values
+eigs_unshrunk[eigs_unshrunk < 0] <- 0
+eigs_oas[eigs_oas < 0]           <- 0
+eigs_lw[eigs_lw < 0]             <- 0
+
+m_eff_unshrunk <- count_eigenvalues(eigs_unshrunk, 0.99)
+m_eff_oas      <- count_eigenvalues(eigs_oas,      0.99)
+m_eff_lw       <- count_eigenvalues(eigs_lw,       0.99)
 
 ## Sub-sample for faster article testing (first 20 genes)
 N_GENES_SAMPLE <- 20L
