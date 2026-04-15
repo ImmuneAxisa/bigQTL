@@ -6,53 +6,85 @@
 # rewritten in R and integrated with the bigstatsr/bigsnpr ecosystem.
 #
 # Original eigenMT repository: https://github.com/joed3/eigenMT
+# R port with nlshrink: https://github.com/ImmuneAxisa/eigenMT
 #
-# Uses bigstatsr::big_cor() for C++-backed correlation computation
-# directly on the file-backed genotype matrix (FBM), avoiding
-# materialisation of genotype submatrices into R memory.
+# Two shrinkage methods are supported:
+#   "basic"   - Ledoit-Wolf 2004 analytical shrinkage implemented in base R.
+#               Applied to the biased sample covariance of the raw genotype
+#               matrix (matching the approach of Python sklearn LedoitWolf).
+#               Results are very close to Python but require no extra packages.
+#   "nlshrink" - Non-parametric linear shrinkage via nlshrink::linshrink_cov()
+#               (Ledoit & Wolf 2017). Requires the nlshrink package (in
+#               Suggests). Gives results identical to the ImmuneAxisa/eigenMT
+#               R port and very close to the Python sklearn implementation.
 # =========================================================================
 
 
 # =========================================================================
-# HELPER FUNCTION: Ledoit-Wolf shrinkage (OAS formula)
+# HELPER FUNCTION: Ledoit-Wolf shrinkage on raw genotype matrix (basic)
 # =========================================================================
 
-#' Apply Ledoit-Wolf shrinkage to a correlation matrix
+#' Apply Ledoit-Wolf shrinkage to a raw genotype matrix
 #'
-#' Applies Ledoit-Wolf shrinkage to a pre-computed sample correlation matrix
-#' using the OAS formula (Chen et al. 2010). Shrinkage target is the
-#' identity matrix.
+#' Applies the analytical Ledoit-Wolf 2004 shrinkage estimator to the
+#' biased sample covariance of a raw genotype matrix and returns the
+#' corresponding shrunk correlation matrix. This is structurally equivalent
+#' to Python \code{sklearn.covariance.LedoitWolf} and gives results very
+#' close to the Python eigenMT without requiring any additional packages.
 #'
-#' @param R Square correlation matrix (p x p)
-#' @param n Sample size used to compute R
+#' @param X Numeric matrix of genotypes: \code{n} samples x \code{p} SNPs.
+#'   Missing values should be imputed before calling this function.
 #'
-#' @return Shrunk correlation matrix of same dimensions as R
+#' @return Shrunk correlation matrix of dimension \code{p x p}.
 #' @export
-lw_shrink_cor <- function(R, n) {
+lw_shrink_geno <- function(X) {
 
-  p <- ncol(R)
-  if (p == 1) return(matrix(1, 1, 1))
+  n <- nrow(X)
+  p <- ncol(X)
 
-  # Degenerate case: all SNPs in perfect LD
-  if (all(abs(R - 1) < 1e-10)) {
+  if (p == 1L) return(matrix(1, 1, 1))
+
+  # Center columns (sklearn LedoitWolf centres by default)
+  X_c <- sweep(X, 2L, colMeans(X), "-")
+
+  # Biased sample covariance (1/n denominator, matching sklearn)
+  S <- crossprod(X_c) / n
+
+  # Degenerate case: all genotypes are effectively constant (monomorphic
+  # window). The covariance matrix is near-zero, so treat as perfect LD
+  # and return the all-ones correlation matrix (m_eff = 1).
+  if (max(abs(S)) < 1e-10) {
     return(matrix(1, p, p))
   }
 
-  # OAS formula for identity target on correlation scale
-  trR2 <- sum(R^2)
-  trR  <- p
+  trace_S  <- sum(diag(S))
+  trace_S2 <- sum(S * S)
 
-  numerator   <- (1 - 2 / p) * trR2 + trR^2
-  denominator <- (n + 1 - 2 / p) * (trR2 - trR^2 / p)
+  mu <- trace_S / p
 
-  if (abs(denominator) < 1e-15) return(R)
+  denominator <- (n + 2) * (trace_S2 - trace_S^2 / p)
 
-  alpha <- max(0, min(1, numerator / denominator))
+  # denominator is zero only when S is a scaled identity, i.e., no excess
+  # correlation signal; skip shrinkage in that case (rho = 0).
+  if (abs(denominator) < 1e-15) {
+    rho <- 0
+  } else {
+    rho <- min(1, max(0, ((n - 2) / n * trace_S2 + trace_S^2) / denominator))
+  }
 
-  shrunk <- (1 - alpha) * R
-  diag(shrunk) <- 1
+  Sigma_hat <- (1 - rho) * S
+  diag(Sigma_hat) <- diag(Sigma_hat) + rho * mu
 
-  return(shrunk)
+  # Convert to correlation matrix.
+  # A near-zero standard deviation means a (near-)monomorphic SNP in this
+  # window. Setting its sd to 1 yields an identity row/column — treating it
+  # as an independent test, which is conservative and numerically safe.
+  sd_vec <- sqrt(diag(Sigma_hat))
+  sd_vec[sd_vec < sqrt(.Machine$double.eps)] <- 1
+  shrunk_cor <- Sigma_hat / outer(sd_vec, sd_vec)
+  diag(shrunk_cor) <- 1
+
+  return(shrunk_cor)
 }
 
 
@@ -116,10 +148,19 @@ eigenMT_correct <- function(pvalue, m_eff) {
 #'
 #' Computes the effective number of independent tests (M_eff) for a single
 #' gene using the eigenMT method. Splits cis-SNPs into disjoint windows of
-#' size \code{window}, computes the shrunk correlation matrix in each window
-#' via \code{bigstatsr::big_cor()} + Ledoit-Wolf shrinkage, eigendecomposes,
-#' and counts eigenvalues needed to explain \code{var_thresh} of total
-#' variance. Sums M_eff across windows.
+#' size \code{window}, computes the shrunk correlation matrix in each window,
+#' eigendecomposes, and counts eigenvalues needed to explain \code{var_thresh}
+#' of total variance. Sums M_eff across windows.
+#'
+#' Two shrinkage methods are available via \code{shrinkage_method}:
+#' \describe{
+#'   \item{\code{"basic"}}{Analytical Ledoit-Wolf 2004 shrinkage applied to the
+#'     biased sample covariance of the raw genotype matrix (no extra
+#'     dependencies). Results are very close to the Python eigenMT.}
+#'   \item{\code{"nlshrink"}}{Non-parametric linear shrinkage via
+#'     \code{nlshrink::linshrink_cov()} (requires the \pkg{nlshrink} package).
+#'     Gives results closest to the Python sklearn LedoitWolf implementation.}
+#' }
 #'
 #' @param bigsnp bigSNP object with \code{$genotypes} (FBM) and \code{$map}
 #' @param snp_indices Integer vector of column indices into the genotype FBM
@@ -128,11 +169,24 @@ eigenMT_correct <- function(pvalue, m_eff) {
 #' @param var_thresh Variance fraction threshold for eigenvalue counting
 #'   (default 0.99)
 #' @param window Maximum SNP window size for LD block computation (default 200)
+#' @param shrinkage_method Character string specifying the shrinkage estimator:
+#'   \code{"basic"} (default) or \code{"nlshrink"} (requires \pkg{nlshrink}).
 #'
 #' @return Integer M_eff: effective number of independent tests for this gene
 #' @export
 eigenMT_gene <- function(bigsnp, snp_indices, ind.row,
-                         var_thresh = 0.99, window = 200) {
+                         var_thresh = 0.99, window = 200,
+                         shrinkage_method = c("basic", "nlshrink")) {
+
+  shrinkage_method <- match.arg(shrinkage_method)
+
+  if (shrinkage_method == "nlshrink" &&
+      !requireNamespace("nlshrink", quietly = TRUE)) {
+    stop(
+      'shrinkage_method = "nlshrink" requires the nlshrink package. ',
+      'Install it with: install.packages("nlshrink")'
+    )
+  }
 
   M <- length(snp_indices)
   if (M == 0) return(0L)
@@ -153,15 +207,17 @@ eigenMT_gene <- function(bigsnp, snp_indices, ind.row,
 
     win_indices <- snp_indices[start:stop]
 
-    # Compute correlation matrix directly on the FBM (C++ backed)
-    raw_cor <- bigstatsr::big_cor(
-      X       = bigsnp$genotypes,
-      ind.row = ind.row,
-      ind.col = win_indices
-    )[]
+    # Extract raw genotype matrix for this window: n_samples x win_size
+    geno_mat <- bigsnp$genotypes[ind.row, win_indices, drop = FALSE]
+    storage.mode(geno_mat) <- "double"
 
-    # Apply Ledoit-Wolf shrinkage
-    shrunk_cor <- lw_shrink_cor(raw_cor, n = length(ind.row))
+    # Compute shrunk correlation matrix
+    shrunk_cor <- if (shrinkage_method == "nlshrink") {
+      shrunk_cov <- nlshrink::linshrink_cov(geno_mat)
+      cov2cor(shrunk_cov)
+    } else {
+      lw_shrink_geno(geno_mat)
+    }
 
     # Eigenvalues
     eigs <- eigen(shrunk_cor, symmetric = TRUE, only.values = TRUE)$values
@@ -197,13 +253,20 @@ eigenMT_gene <- function(bigsnp, snp_indices, ind.row,
 #' @param var_thresh Variance fraction threshold for eigenvalue counting
 #'   (default 0.99)
 #' @param eigenmt_window SNP window size for LD block computation (default 200)
+#' @param shrinkage_method Character string specifying the shrinkage estimator
+#'   passed to \code{eigenMT_gene()}: \code{"basic"} (default) or
+#'   \code{"nlshrink"} (requires \pkg{nlshrink}).
 #' @param ncores Number of cores for parallel computation (default 1)
 #'
 #' @return Data frame with columns: pheno_name, n_cis_snps, m_eff
 #' @export
 eigenMT_batch <- function(bigsnp, pheno_coord, ind.row,
                           cis_window = 1e6, var_thresh = 0.99,
-                          eigenmt_window = 200, ncores = 1) {
+                          eigenmt_window = 200,
+                          shrinkage_method = c("basic", "nlshrink"),
+                          ncores = 1) {
+
+  shrinkage_method <- match.arg(shrinkage_method)
 
   results <- parallel::mclapply(seq_len(nrow(pheno_coord)), function(i) {
     pheno_row <- pheno_coord[i, ]
@@ -220,11 +283,12 @@ eigenMT_batch <- function(bigsnp, pheno_coord, ind.row,
     n_cis <- length(snp_indices)
 
     m_eff <- eigenMT_gene(
-      bigsnp      = bigsnp,
-      snp_indices = snp_indices,
-      ind.row     = ind.row,
-      var_thresh  = var_thresh,
-      window      = eigenmt_window
+      bigsnp           = bigsnp,
+      snp_indices      = snp_indices,
+      ind.row          = ind.row,
+      var_thresh       = var_thresh,
+      window           = eigenmt_window,
+      shrinkage_method = shrinkage_method
     )
 
     data.frame(
