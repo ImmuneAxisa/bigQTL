@@ -27,7 +27,7 @@ Features
   - run_conditional_qtl(): stepwise conditioning and all-but-one conditioning
   - process_pheno(), run_stepwise(), run_allbutone()
 - eigenMT multiple-testing correction
-  - lw_shrink_cor(), count_eigenvalues(), eigenMT_gene(), eigenMT_batch()
+  - lw_shrink_geno(), count_eigenvalues(), eigenMT_gene(), eigenMT_batch()
 - Data-preparation utilities
   - compute_geno_pcs(), compute_pheno_pcs(), rint()
 - Helper utilities
