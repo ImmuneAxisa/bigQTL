@@ -5,7 +5,7 @@
 **bigQTL** is an R package for scalable conditional cis-QTL analysis built to operate with file-backed matrices (FBM) from the bigstatsr / bigsnpr ecosystem. Key capabilities:
 
 - Conditional eQTL analysis — stepwise conditioning and all-but-one conditioning via `run_conditional_eqtl()`
-- eigenMT multiple-testing correction — per-gene effective number of independent tests with Ledoit–Wolf shrinkage (`lw_shrink_cor()`, `eigenMT_gene()`, `eigenMT_batch()`)
+- eigenMT multiple-testing correction — per-gene effective number of independent tests with Ledoit–Wolf shrinkage (`lw_shrink_geno()`, `eigenMT_gene()`, `eigenMT_batch()`)
 - Data-preparation utilities — genotype PCA (`compute_geno_pcs()`), feature PCA (`compute_feature_pcs()`), rank-inverse normal transform (`rint()`)
 - bigFeatures S3 class — constructor `bigFeatures()` that converts an input matrix to a disk-backed FBM
 - Results are written as partitioned Apache Parquet datasets (via `arrow`)
@@ -18,7 +18,7 @@ R/
                     #   run_allbutone(), input validation & sample-matching checks
   bigFeatures.R     # bigFeatures() constructor (uses bigstatsr::as_FBM())
   helpers.R         # add_snps_to_covariates(), get_cis_snps(), get_feature_indices()
-  eigenMT.R         # lw_shrink_cor(), count_eigenvalues(), eigenMT convenience helpers
+  eigenMT.R         # lw_shrink_geno(), count_eigenvalues(), eigenMT convenience helpers
   prep_helpers.R    # compute_geno_pcs() (uses bigsnpr::snp_autoSVD()), compute_feature_pcs(), rint()
   bigQTL-package.R  # package-level imports / namespace hints
 vignettes/
