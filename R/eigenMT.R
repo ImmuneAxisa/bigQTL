@@ -12,11 +12,10 @@
 #   "basic"   - Ledoit-Wolf 2004 analytical shrinkage implemented in base R.
 #               Applied to the biased sample covariance of the raw genotype
 #               matrix (matching the approach of Python sklearn LedoitWolf).
-#               Results are very close to Python but require no extra packages.
-#   "nlshrink" - Non-parametric linear shrinkage via nlshrink::linshrink_cov()
-#               (Ledoit & Wolf 2017). Requires the nlshrink package (in
+#               Results are very close to Python and require no extra packages.
+#   "nlshrink" - Requires the nlshrink package (in
 #               Suggests). Gives results identical to the ImmuneAxisa/eigenMT
-#               R port and very close to the Python sklearn implementation.
+#               R port and to the Python sklearn implementation.
 # =========================================================================
 
 
@@ -159,7 +158,7 @@ eigenMT_correct <- function(pvalue, m_eff) {
 #'     dependencies). Results are very close to the Python eigenMT.}
 #'   \item{\code{"nlshrink"}}{Non-parametric linear shrinkage via
 #'     \code{nlshrink::linshrink_cov()} (requires the \pkg{nlshrink} package).
-#'     Gives results closest to the Python sklearn LedoitWolf implementation.}
+#'     Gives results identical to the Python sklearn LedoitWolf implementation.}
 #' }
 #'
 #' @param bigsnp bigSNP object with \code{$genotypes} (FBM) and \code{$map}
