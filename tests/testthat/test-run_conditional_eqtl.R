@@ -380,6 +380,7 @@ test_that("run_stepwise warns when max_steps is reached", {
 # =========================================================================
 
 test_that("run_stepwise excludes non-passing conditioning steps from stepwise_tables", {
+  set.seed(42)
   d <- make_qtl_test_data_high_signal()
 
   ind.row.snp <- match(d$sample_ids, d$bigsnp$fam$sample.ID)
