@@ -375,6 +375,57 @@ test_that("run_stepwise warns when max_steps is reached", {
   )
 })
 
+# =========================================================================
+# stepwise_tables only contains passing steps
+# =========================================================================
+
+test_that("run_stepwise excludes non-passing conditioning steps from stepwise_tables", {
+  set.seed(42)
+  d <- make_qtl_test_data_high_signal()
+
+  ind.row.snp <- match(d$sample_ids, d$bigsnp$fam$sample.ID)
+
+  results_step0 <- test_snps_with_indices(
+    bigsnp      = d$bigsnp,
+    y           = rnorm(length(d$sample_ids)),
+    snp_indices = seq_len(nrow(d$bigsnp$map)),
+    snp_names   = d$bigsnp$map$marker.ID,
+    design_base = d$design_base,
+    ind.row     = ind.row.snp
+  )
+  results_step0$step <- 0L
+  results_step0$conditioning_snps <- NA_character_
+  results_step0 <- results_step0[, c("step", "conditioning_snps",
+                                     setdiff(names(results_step0),
+                                             c("step", "conditioning_snps")))]
+
+  # Force the step-0 lead SNP to pass a tight threshold
+  results_step0$pvalue[1] <- 1e-10
+
+  # pval_threshold = 1e-5: step-0 lead (pvalue = 1e-10) passes since 1e-10 < 1e-5.
+  # The conditioning step uses a random y, so its p-values are noise and will not
+  # reach 1e-5, causing the loop to break without adding that step to stepwise_tables.
+  result <- run_stepwise(
+    results_step0  = results_step0,
+    bigsnp         = d$bigsnp,
+    y              = rnorm(length(d$sample_ids)),
+    snp_indices    = seq_len(nrow(d$bigsnp$map)),
+    cis_snps_pheno = d$bigsnp$map$marker.ID,
+    design_base    = d$design_base,
+    ind.row.snp    = ind.row.snp,
+    pval_threshold = 1e-5,
+    max_steps      = 5,
+    ncores         = 1
+  )
+
+  # stepwise_tables should contain only results_step0 (step 0), since the
+  # conditioning step run after it did not pass pval_threshold = 1e-5.
+  # (step 0 itself is always in the list; conditioning steps are only added
+  # when their lead SNP passes the threshold.)
+  expect_equal(length(result$stepwise_tables), 1L)
+  expect_equal(result$stepwise_tables[[1]]$step[1], 0L)
+})
+
 test_that("run_conditional_qtl accepts max_steps argument and passes it through", {
   d <- make_qtl_test_data()
   out_dir <- tempfile("qtl_test_")

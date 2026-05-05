@@ -47,6 +47,6 @@ biased sample covariance of the raw genotype matrix (no extra
 dependencies). Results are very close to the Python eigenMT.}
 \item{\code{"nlshrink"}}{Non-parametric linear shrinkage via
 \code{nlshrink::linshrink_cov()} (requires the \pkg{nlshrink} package).
-Gives results closest to the Python sklearn LedoitWolf implementation.}
+Gives results identical to the Python sklearn LedoitWolf implementation.}
 }
 }
