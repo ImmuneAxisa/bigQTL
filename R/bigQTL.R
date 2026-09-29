@@ -484,13 +484,12 @@ run_stepwise <- function(results_step0, bigsnp, y, snp_indices,
                                      setdiff(names(results_step),
                                              c("step", "conditioning_snps")))]
 
-    stepwise_tables[[length(stepwise_tables) + 1]] <- results_step
-
     new_lead <- results_step[which.min(results_step$pvalue), ]
 
     if (new_lead$pvalue < pval_threshold) {
       if (verbose) message(sprintf("    Step %d: New lead SNP %s passes (p = %.2e)",
                                    step, new_lead$snp, new_lead$pvalue))
+      stepwise_tables[[length(stepwise_tables) + 1]] <- results_step
       conditioning_snps <- c(conditioning_snps, new_lead$snp)
       step <- step + 1
     } else {
@@ -539,7 +538,10 @@ run_allbutone <- function(conditioning_snps, stepwise_tables, bigsnp, y,
 
     if (i == length(conditioning_snps)) {
 
-      # Last independent SNP: reuse final stepwise step
+      # Last independent SNP: reuse results from the final passing stepwise step.
+      # After the run_stepwise fix, stepwise_tables contains only results from
+      # passing conditioning steps, so the last entry corresponds to the step
+      # conditioned on conditioning_snps[-last], which is exactly what we need here.
       result <- stepwise_tables[[length(stepwise_tables)]]
       result$indep <- i
       result$conditioning_snps <- paste(snps_condition_on, collapse = ";")

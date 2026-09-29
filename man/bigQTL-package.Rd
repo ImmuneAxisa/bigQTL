@@ -10,5 +10,10 @@ Performs conditional cis-QTL analysis (stepwise conditioning and all-but-one) us
 \author{
 \strong{Maintainer}: Pierre-Paul Axisa \email{pp.axisa@gmail.com}
 
+Authors:
+\itemize{
+  \item Pierre-Paul Axisa \email{pp.axisa@gmail.com}
+}
+
 }
 \keyword{internal}
