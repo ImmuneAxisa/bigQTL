@@ -5,3 +5,4 @@
 .DS_Store
 *_cache/
 __pycache__/
+vignettes/articles/*.html

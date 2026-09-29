@@ -3,3 +3,6 @@
 ^LICENSE\.md$
 ^vignettes/articles$
 ^\.github$
+^\.devcontainer$
+^dev$
+^README\.Rmd$

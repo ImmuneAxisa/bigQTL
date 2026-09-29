@@ -32,7 +32,10 @@
 
 	// Install R packages after the container is created.
 	// Uses r2u binary packages (fast, no compilation).
-	"postCreateCommand": "R -q -e 'install.packages(c(\"arrow\", \"duckdb\", \"dplyr\", \"jsonlite\"))'",
+	// bigstatsr/bigsnpr/reticulate/nlshrink are bigQTL's Imports/Suggests
+	// (file-backed matrices, eigenMT shrinkage, Python interop for the
+	// eigenMT_validation vignette).
+	"postCreateCommand": "R -q -e 'install.packages(c(\"arrow\", \"duckdb\", \"dplyr\", \"jsonlite\", \"bigstatsr\", \"bigsnpr\", \"reticulate\", \"nlshrink\"))'",
 
 	// Configure tool-specific properties.
 	"customizations": {

@@ -23,5 +23,7 @@ Suggests:
     nlshrink,
     reticulate,
     knitr,
-    rmarkdown
+    rmarkdown,
+    dplyr
 Config/testthat/edition: 3
+VignetteBuilder: knitr

@@ -1,0 +1,68 @@
+---
+output: github_document
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(eval = FALSE, comment = "#>")
+```
+
+# bigQTL
+
+Scalable conditional cis-QTL analysis on file-backed matrices (FBM) from the
+bigstatsr/bigsnpr ecosystem: stepwise conditioning, all-but-one conditioning, and
+eigenMT multiple-testing correction, with results written as partitioned Apache
+Parquet datasets.
+
+Repository: <https://github.com/ImmuneAxisa/bigQTL>
+
+## Installation
+
+```{r}
+remotes::install_github("ImmuneAxisa/bigQTL")
+```
+
+All runtime dependencies are declared in `DESCRIPTION` and installed automatically.
+
+## Features
+
+- **Conditional QTL analysis** — `bigQTL()` (all-in-one, with automatic PC
+  computation), `run_conditional_qtl()` (stepwise + all-but-one conditioning),
+  `marginalQTL()` (marginal-only scan)
+- **eigenMT multiple-testing correction** — `eigenMT_batch()`, `eigenMT_gene()`,
+  `eigenMT_correct()`, with a dependency-free Ledoit-Wolf shrinkage estimator
+- **Data preparation** — `compute_geno_pcs()`, `compute_pheno_pcs()`, `rint()`
+- **`bigPheno`** — an FBM-backed S3 class for phenotype/expression matrices, mirroring
+  bigsnpr's `bigSNP`
+
+## Quickstart
+
+```{r}
+library(bigQTL)
+
+bigpheno <- bigPheno(expr_mat)  # samples x phenotypes
+
+res <- bigQTL(
+  bigpheno    = bigpheno,
+  bigsnp      = bigsnp,          # a bigsnpr::bigSNP object
+  pheno_coord = pheno_coord,     # data.frame(pheno_name, chromosome, start, end)
+  design_base = design_matrix,   # covariates; rownames = sample IDs
+  output_dir  = "output/"
+)
+
+res$stepwise    # Arrow dataset: output/stepwise/pheno=<name>/part-0.parquet
+res$allbutone   # Arrow dataset: output/allbutone/pheno=<name>/part-0.parquet
+```
+
+See `vignette("bigQTL-intro")` for a complete walkthrough (simulated data, stepwise +
+all-but-one inspection, eigenMT correction), and `vignettes/articles/
+eigenMT_validation.Rmd` for validation against the original Python eigenMT.
+
+## License & citation
+
+CC BY 4.0 — see `LICENSE.md`. If you use `bigQTL` in a publication, please cite the
+repository and the underlying methods (eigenMT: Davis et al. 2016; Ledoit-Wolf
+shrinkage: Ledoit & Wolf 2004).
+
+## Contact
+
+Issues and questions: <https://github.com/ImmuneAxisa/bigQTL/issues>
