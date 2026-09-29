@@ -1,0 +1,19 @@
+{
+  "features": {
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {
+      "version": "1.0.5",
+      "resolved": "ghcr.io/anthropics/devcontainer-features/claude-code@sha256:cfc2e7d3e9fd3b9b01f8d5cb158508a884c8c0ede2e23ed10f32dea5d4ffe69a",
+      "integrity": "sha256:cfc2e7d3e9fd3b9b01f8d5cb158508a884c8c0ede2e23ed10f32dea5d4ffe69a"
+    },
+    "ghcr.io/rocker-org/devcontainer-features/quarto-cli:1": {
+      "version": "1.1.5",
+      "resolved": "ghcr.io/rocker-org/devcontainer-features/quarto-cli@sha256:7d1ba1c977b72d616e76089f016c87c1a581a05386aee635bae08e5a1375507d",
+      "integrity": "sha256:7d1ba1c977b72d616e76089f016c87c1a581a05386aee635bae08e5a1375507d"
+    },
+    "ghcr.io/rocker-org/devcontainer-features/r-apt:0": {
+      "version": "0.5.0",
+      "resolved": "ghcr.io/rocker-org/devcontainer-features/r-apt@sha256:77b2f97468c79afa09afd7141fac0bda0f395e265f606e13365e6767949dcc55",
+      "integrity": "sha256:77b2f97468c79afa09afd7141fac0bda0f395e265f606e13365e6767949dcc55"
+    }
+  }
+}
