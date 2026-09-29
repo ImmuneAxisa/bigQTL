@@ -172,6 +172,7 @@ eigenMT_correct <- function(pvalue, m_eff) {
 #'   \code{"basic"} (default) or \code{"nlshrink"} (requires \pkg{nlshrink}).
 #'
 #' @return Integer M_eff: effective number of independent tests for this gene
+#' @importFrom stats cov2cor
 #' @export
 eigenMT_gene <- function(bigsnp, snp_indices, ind.row,
                          var_thresh = 0.99, window = 200,

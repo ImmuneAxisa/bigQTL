@@ -90,6 +90,45 @@ for cache/OS files); `cc64aef` added `.devcontainer/` config for a reproducible 
 development environment. This review session (dev docs, code review, vignette
 validation, README/CLAUDE.md rewrite) follows directly from that devcontainer setup.
 
+## 8. Code review follow-up: fixes + a synthetic-data test fixture (2026-09-29)
+
+Same-day follow-up acting on `dev/CODE_REVIEW.md`'s findings. Two quick correctness
+fixes (§2.1: added the missing `@importFrom stats cov2cor` on `eigenMT_gene()`; §2.3:
+removed the `eigenMT_validation.Rmd` dead-code branches referencing `comparison$m_eff_lw`
+columns that were never populated), then work on the review's §3 finding that `bigQTL()`
+and `run_allbutone()` had **zero test coverage** because every existing fixture used
+random, uncorrelated genotype/phenotype data.
+
+Closing that gap needed a fixture with genuinely correlated signal, so this pass added
+`dev/generate_dummy_qtl_data.R`: a seeded simulator producing 5 phenotypes on one
+chromosome with 3/2/1/0/0 independent causal signals, LD-friend SNPs at variable r²
+(via a haplotype-copying model — copy each haplotype from the causal SNP with
+probability `sqrt(target_r2)`, else redraw at the same MAF, which gives
+`cor(friend, causal) == sqrt(target_r2)` in expectation), and a background scaffold
+(3000 unlinked SNPs, 200 noise phenotypes) so `bigQTL()`'s genotype/phenotype PCs
+don't self-absorb the very signal being tested — an artifact discovered by running the
+full pipeline against the first, scaffold-free version of the fixture (recovery dropped
+from 3/2/1 to 2/1/0 signals per phenotype until the scaffold was added). The script
+validates recovery through the package's own `run_stepwise()`/`bigQTL()` before saving,
+and writes `dev/dummy_data_association_plots.png` (one line per stepwise-conditioning
+step, one panel per phenotype) for visual inspection. The dataset is saved as internal
+`dummy_qtl_data` (`R/sysdata.rda`) — raw matrices only, not live `bigsnp`/`bigpheno`
+objects, since `bigstatsr` FBM backing files don't survive serialization;
+`tests/testthat/helper-dummy-data.R` reconstructs them fresh per test.
+
+New tests: `test-bigQTL.R` (end-to-end recovery, causal-SNP identification, and
+invariance under a genuine sample-ID permutation between `design_base` and
+`bigsnp`/`bigpheno` — also closing the §2.4 untested-invariant finding) and
+`test-run_allbutone.R` (drives the function on phenotypes with 3 and 2 real stepwise
+hits, and directly checks the last-SNP-reuse optimization from §1 against a
+freshly-computed result — the regression test §1 flagged as missing). Test count
+69 → 111; coverage 60.24% → 81.10% overall, `R/bigQTL.R` 73.8% → 96.42%.
+
+Not addressed in this pass (left open in `dev/CODE_REVIEW.md` §3): `eigenMT_gene()`/
+`eigenMT_batch()`'s FBM-facing, multi-window-splitting logic remains untested, and
+`compute_geno_pcs()`/`compute_pheno_pcs()` have no dedicated unit tests of their own
+(only indirect coverage via `test-bigQTL.R`).
+
 ## Commit reference
 
 | Milestone | Commit(s) | Date |

@@ -390,13 +390,11 @@ message(sprintf("Comparison: %d genes", nrow(comparison)))
 print(comparison)
 
 message(sprintf(
-  "\nM_eff means — Python: %.1f | basic: %.1f | nlshrink: %s | lw (cvCovEst): %s",
+  "\nM_eff means — Python: %.1f | basic: %.1f | nlshrink: %s",
   mean(comparison$m_eff_py),
   mean(comparison$m_eff_basic),
   if (!all(is.na(comparison$m_eff_nlshrink)))
-    sprintf("%.1f", mean(comparison$m_eff_nlshrink, na.rm = TRUE)) else "n/a",
-  if (!all(is.na(comparison$m_eff_lw)))
-    sprintf("%.1f", mean(comparison$m_eff_lw, na.rm = TRUE)) else "n/a"
+    sprintf("%.1f", mean(comparison$m_eff_nlshrink, na.rm = TRUE)) else "n/a"
 ))
 
 message(sprintf(
@@ -409,12 +407,6 @@ if (!all(is.na(comparison$rel_diff_nlshrink)))
     "                       nlshrink: median=%.0f%% max=%.0f%%",
     100 * median(comparison$rel_diff_nlshrink, na.rm = TRUE),
     100 * max(comparison$rel_diff_nlshrink, na.rm = TRUE)
-  ))
-if (!all(is.na(comparison$rel_diff_lw)))
-  message(sprintf(
-    "                         lw (cvCovEst): median=%.0f%% max=%.0f%%",
-    100 * median(comparison$rel_diff_lw, na.rm = TRUE),
-    100 * max(comparison$rel_diff_lw, na.rm = TRUE)
   ))
 
 MEFF_TOL <- 0.20

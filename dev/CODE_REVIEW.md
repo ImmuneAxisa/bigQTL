@@ -4,6 +4,12 @@ Correctness-focused review of `R/*.R`. No code was changed as part of this revie
 findings only. Baseline: `devtools::test()` → **69/69 passing**; `R CMD check` →
 **0 errors, 0 warnings, 2 NOTEs** (both minor, see below).
 
+**Follow-up (2026-09-29, same day): §2.1 and §2.3 fixed, and both priority gaps from
+§3 closed.** `devtools::test()` → **111/111 passing** (up from 69); `covr::package_coverage()`
+→ **81.10%** overall (up from 60.24%), `R/bigQTL.R` **96.42%** (up from 73.8%);
+`R CMD check` → **0 errors, 0 warnings**, the `cov2cor` NOTE is gone. See the status note
+at the top of each affected section below for what changed and what's still open.
+
 ## 1. Resolved: the stepwise "one step too far" bug
 
 **Status: fixed, on `main`, with a regression test.** This was the primary thing this
@@ -64,6 +70,9 @@ between two functions and there's no test that would catch it breaking again (se
 
 ### 2.1 `eigenMT_gene`: missing `cov2cor` import (R CMD check NOTE)
 
+**Status: fixed.** Added `@importFrom stats cov2cor` to `eigenMT_gene()`
+(`R/eigenMT.R`) and regenerated `NAMESPACE`. `R CMD check` no longer NOTEs this.
+
 `R/eigenMT.R:216` calls `cov2cor()` (used in the `"nlshrink"` branch) without importing
 it from `stats`. `R CMD check` NOTEs this:
 
@@ -91,6 +100,15 @@ this closely. No issue found here; the degenerate-case handling
 forced `sd = 1` at `eigenMT.R:81-82`) is sound and well-commented.
 
 ### 2.3 `eigenMT_validation.Rmd` — execution results and a dead-code bug
+
+**Status: dead code removed.** Deleted the `| lw (cvCovEst): %s` /
+`comparison$m_eff_lw` / `comparison$rel_diff_lw` references from the `compare` chunk's
+summary messages (the columns were never created, so these branches were always dead —
+see below). The vignette's real comparison (Python vs. `"basic"` vs. `"nlshrink"`) is
+unaffected; this only removed output that never printed anything in the first place.
+Not re-executed against the real 373-sample eigenMT dataset as part of this fix (that
+requires the conda env from the original review run); confirmed instead via
+`knitr::purl()` + `parse()` that the edited chunk is still syntactically valid.
 
 Executed end-to-end in this review (fresh conda env, cache cleared to force real
 re-computation, not a cache replay) on the real 373-sample / 218,950-SNP / 15,079-gene
@@ -123,6 +141,13 @@ cleaning up since it's dead/misleading code.
 
 ### 2.4 Sample-ID ordering — a load-bearing, type-unenforced invariant
 
+**Status: now covered by a test.** `test-bigQTL.R` ("bigQTL is invariant to sample-order
+permutation between design_base and bigsnp/bigpheno") constructs `design_base` with a
+genuinely shuffled row order relative to `bigsnp`/`bigpheno` and asserts the resulting
+stepwise output is identical (up to a handful of rows with mathematically-undefined
+coefficients — see the test's comment) to the unpermuted run. The invariant itself was
+not changed; this closes the "no test would catch it breaking" gap called out below.
+
 Every entry point (`run_conditional_qtl`, `test_snps_with_indices`,
 `add_snps_to_covariates`, `compute_geno_pcs`, `compute_pheno_pcs`) independently derives
 row order via `match()`/`which(... %in% ...)` against `bigsnp$fam$sample.ID` /
@@ -140,49 +165,51 @@ genotype row) rather than loudly, so it deserves a dedicated test.
 
 ## 3. Test coverage gaps (measured with `covr::package_coverage()`)
 
-Overall: **60.24%** line coverage. By file:
+**Status: both priority gaps closed (2026-09-29).** New coverage overall: **81.10%**
+(was 60.24%). By file: `R/bigQTL.R` 73.8% → **96.42%**, `R/prep_helpers.R` 5.0% →
+**76.67%** (picked up as a side effect of exercising `bigQTL()`), `R/bigFeatures.R`
+94.4%, `R/helpers.R` 83.8% (unchanged), `R/eigenMT.R` 33.3% (unchanged — third bullet
+below, not one of the two gaps prioritized here, still open).
 
-| File | Coverage | Note |
-|---|---:|---|
-| `R/bigFeatures.R` | 94.4% | Well covered |
-| `R/helpers.R` | 83.8% | Well covered |
-| `R/bigQTL.R` | 73.8% | See below — two big gaps |
-| `R/eigenMT.R` | 33.3% | Pure math helpers tested; FBM-facing functions are not |
-| `R/prep_helpers.R` | 5.0% | Almost entirely untested |
+Closing these gaps needed genuinely correlated genotype/phenotype data (existing
+fixtures were all random/uncorrelated), so this pass added a reusable fixture:
+`dev/generate_dummy_qtl_data.R` (seeded) simulates 5 phenotypes on one chromosome with
+3/2/1/0/0 independent causal signals plus LD-friend SNPs (r² 0.2–0.9) and a background
+scaffold (for realistic PC behavior), validates recovery through the package's own
+`run_stepwise()`/`bigQTL()` before freezing it, and saves it as internal
+`dummy_qtl_data` (`R/sysdata.rda`). `tests/testthat/helper-dummy-data.R` reconstructs
+`bigsnp`/`bigpheno` from it per test (FBMs don't survive serialization, so only raw
+matrices + ground truth are stored). See `dev/dummy_data_association_plots.png` for a
+visual check (one line per stepwise-conditioning step, one panel per phenotype).
 
-Two gaps stand out as worth prioritizing:
-
-- **`bigQTL()` — the package's namesake all-in-one wrapper — has zero test coverage.**
-  `grep -n "bigQTL(" tests/testthat/*.R` returns nothing; the function is never called
-  from any test. Its PC-computation-and-augmentation logic
-  (`compute_pheno_pcs()`/`compute_geno_pcs()` → `cbind()` → `run_conditional_qtl()`) is
-  exactly the sample-alignment-sensitive code flagged in §2.4, and it's the function most
-  likely to be a new user's first call into the package.
-- **`run_allbutone()` has zero test coverage of its actual body.** Every test's
-  `y`/genotypes are random and uncorrelated (`rnorm`/`sample(0:2, ..., replace=TRUE)`
-  with no injected effect), and `run_allbutone()` is only invoked when
-  `length(conditioning_snps) > 1` (`process_pheno`'s gate at `bigQTL.R:380`). No test
-  fixture produces two real stepwise hits, so that gate is never true and
-  `run_allbutone()`'s body (`bigQTL.R:530-572`) never executes under test. `covr`
-  confirms zero coverage on every line of the function. This is the function containing
-  the fragile last-SNP-reuse optimization described in §1 — it currently has no test that
-  would catch that optimization breaking, or verify its all-but-one p-values are correct
-  at all.
+- ~~**`bigQTL()` — the package's namesake all-in-one wrapper — has zero test
+  coverage.**~~ **Fixed:** `test-bigQTL.R` now runs `bigQTL()` end-to-end on
+  `dummy_qtl_data`, asserts it recovers the correct number of independent signals per
+  phenotype and identifies the true causal SNP as each step's lead, and (closing §2.4's
+  gap too) asserts identical results under a genuine sample-ID permutation between
+  `design_base` and `bigsnp`/`bigpheno`.
+- ~~**`run_allbutone()` has zero test coverage of its actual body.**~~ **Fixed:**
+  `test-run_allbutone.R` drives it directly on phenotypes with 3 and 2 real stepwise
+  hits (satisfying `process_pheno`'s `length(conditioning_snps) > 1` gate for real, not
+  by chance), asserts every independent SNP is recovered as a significant hit in its
+  own all-but-one table, and directly checks that the fragile last-SNP-reuse
+  optimization from §1 (`bigQTL.R:539-549`) matches a freshly-computed all-but-one
+  result — the exact regression test that section flagged as missing.
 - `eigenMT_gene()`/`eigenMT_batch()` (the FBM-facing, multi-window-splitting logic) are
-  untested — only their underlying pure functions (`lw_shrink_geno`, `count_eigenvalues`,
-  `eigenMT_correct`) have unit tests (`test-pure-functions.R`). Multi-window behavior
-  (a gene with cis-SNPs spanning more than one `window`-sized block) is unverified.
-- `compute_geno_pcs()`/`compute_pheno_pcs()` are untested in isolation (only indirectly,
-  and only if/when `bigQTL()` is exercised — which it currently isn't, see above).
-
-**Suggested minimum additions** (not implemented here, per review scope): one
-`run_conditional_qtl()`-level integration test with genuinely correlated genotype/
-phenotype signal strong enough to produce ≥2 real stepwise hits (exercising
-`run_allbutone()`'s non-reuse branch and the reuse branch together), and one direct test
-of `bigQTL()` end-to-end with a sample-ID permutation between `bigsnp`/`bigpheno`/
-`design_base` to lock in the ordering invariant from §2.4.
+  **still untested** — only their underlying pure functions (`lw_shrink_geno`,
+  `count_eigenvalues`, `eigenMT_correct`) have unit tests (`test-pure-functions.R`).
+  Multi-window behavior (a gene with cis-SNPs spanning more than one `window`-sized
+  block) is unverified. Not one of the two gaps prioritized in this pass; `dummy_qtl_data`
+  could be reused for this (e.g. lower `eigenmt_window` below a phenotype's cis-SNP
+  count to force multi-window splitting) but no test was written.
+- `compute_geno_pcs()`/`compute_pheno_pcs()` are now exercised indirectly via
+  `test-bigQTL.R` (hence the `R/prep_helpers.R` coverage jump), but have no dedicated
+  unit tests of their own (e.g. `exclude_snp_names`/`exclude_pheno_names`,
+  `n_top_phenos` truncation, the `keep_ids` partial-match warning path). Still open.
 
 ## 4. R CMD check summary
+
+Original state:
 
 ```
 0 errors ✔ | 0 warnings ✔ | 2 notes ✖
@@ -193,3 +220,8 @@ of `bigQTL()` end-to-end with a sample-ID permutation between `bigsnp`/`bigpheno
   eigenMT_gene: no visible global function definition for 'cov2cor'
   (see §2.1 — left for the author to fix, requires an R/ code change)
 ```
+
+**Status (2026-09-29): both NOTEs resolved.** `devtools::check()` now reports
+**0 errors, 0 warnings, 0 notes** attributable to package code (a `.claude` hidden-dir
+NOTE can appear in this sandbox — that's this AI coding session's own local tool config,
+not part of the package, and won't appear in a normal checkout).
